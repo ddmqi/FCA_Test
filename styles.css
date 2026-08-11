@@ -510,4 +510,75 @@ button{font-family:inherit;}
   .exam-switcher{display:none;}
   .search-box{width:150px;}
   .hero h1{font-size:28px;}
+  .menu-btn{display:inline-flex;}
+}
+
+/* ---------- Back button ---------- */
+.back-btn{
+  display:inline-flex; align-items:center; gap:6px; margin-bottom:12px;
+  border:none; background:transparent; color:var(--text-faint); cursor:pointer;
+  font-size:13px; font-weight:600; padding:6px 4px 6px 0; transition:.15s;
+}
+.back-btn:hover{color:var(--accent);}
+.back-btn svg{width:15px; height:15px;}
+
+/* ---------- Mobile menu button + sidebar backdrop ---------- */
+.menu-btn{display:none;}
+.sidebar-backdrop{
+  display:none; position:fixed; inset:0; top:var(--header-h); z-index:45;
+  background:rgba(0,0,0,.45); opacity:0; transition:opacity .2s;
+}
+.sidebar-backdrop.show{display:block; opacity:1;}
+
+/* ---------- Glossary ---------- */
+.gloss-toolbar{margin-bottom:18px;}
+.gloss-search{width:100%; max-width:420px;}
+.gloss-list{display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:14px;}
+.gloss-card{
+  background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius);
+  padding:16px 18px; box-shadow:var(--shadow);
+}
+.gloss-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;}
+.gloss-term{font-size:15px; font-weight:800; color:var(--text);}
+.gloss-ch{font-size:10.5px; font-weight:700; color:var(--text-faint); background:var(--bg-inset); padding:3px 8px; border-radius:100px; flex-shrink:0;}
+.gloss-def{font-size:13px; color:var(--text-dim); line-height:1.5; margin-bottom:10px;}
+.gloss-chars{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:5px;}
+.gloss-chars li{font-size:12px; color:var(--text-faint); line-height:1.4;}
+
+/* =========================================================
+   Responsive: desktop / tablet / mobile
+   ========================================================= */
+
+/* Ultra-wide desktop: cap line length so text/cards don't stretch edge to edge */
+@media (min-width: 1440px){
+  .main{padding-left:56px; padding-right:56px;}
+  .main-narrow{max-width:1080px;}
+  .gloss-list{grid-template-columns:repeat(3, 1fr);}
+}
+
+/* Tablet (portrait/landscape) */
+@media (max-width: 1180px) and (min-width: 881px){
+  .sidebar{width:230px;}
+  .main{padding:24px 24px 70px;}
+  .exam-grid{grid-template-columns:repeat(2, 1fr);}
+}
+
+/* Phones */
+@media (max-width: 640px){
+  .topbar{padding:0 12px; gap:8px;}
+  .brand .sub{display:none;}
+  .search-box{width:110px;}
+  .hero{padding:40px 12px 28px;}
+  .hero h1{font-size:24px;}
+  .hero p{font-size:14px;}
+  .overview-head{flex-direction:column; align-items:stretch;}
+  .overview-actions{width:100%;}
+  .overview-actions .btn{flex:1; justify-content:center;}
+  .stat-row{gap:10px;}
+  .stat-row .stat-pill{flex:1 1 calc(50% - 10px); min-width:0;}
+  .tabbar{overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap;}
+  .tabbar button{flex-shrink:0;}
+  .gloss-list{grid-template-columns:1fr;}
+  .qty-chips{gap:8px;}
+  .mindmap-wrap{height:60vh;}
 }

@@ -114,6 +114,10 @@ var ICON = {
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>',
   search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   chevron:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
+  menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  glossary:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h5"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>',
   cards:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="14" rx="2"/><path d="M7 6V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/></svg>',
   quiz:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>',
@@ -201,6 +205,35 @@ function attachDiagrams(root){
 
 /* ---------- utilities ---------- */
 function esc(s){ return (s==null?"":String(s)); }
+function toggleSidebar(){
+  var s = document.querySelector(".sidebar");
+  if(!s) return;
+  var open = s.classList.toggle("open");
+  sidebarBackdrop(open);
+}
+function closeSidebar(){
+  var s = document.querySelector(".sidebar");
+  if(s) s.classList.remove("open");
+  sidebarBackdrop(false);
+}
+function sidebarBackdrop(show){
+  var bd = document.getElementById("sidebarBackdrop");
+  if(!bd){
+    bd = document.createElement("div");
+    bd.id = "sidebarBackdrop";
+    bd.className = "sidebar-backdrop";
+    bd.onclick = closeSidebar;
+    document.body.appendChild(bd);
+  }
+  bd.classList.toggle("show", !!show);
+}
+function backRow(label, targetPath){
+  return '<button class="back-btn" data-back="1">'+ICON.back+' '+esc(label)+'</button>';
+}
+function wireBack(container, targetPath){
+  var b = container.querySelector('[data-back="1"]');
+  if(b) b.onclick = function(){ navigate(targetPath); };
+}
 function stripHtml(html){ var d=document.createElement("div"); d.innerHTML=html||""; return d.textContent||""; }
 function pct(n,d){ return d>0 ? Math.round(n/d*100) : 0; }
 function shuffle(arr){
@@ -240,6 +273,7 @@ var app = document.getElementById("app");
 
 function render(){
   stopActiveTimer(); stopActiveQuizKeys();
+  closeSidebar();
   var parts = parseHash();
   closeSearch();
   if(parts.length===0){ renderHome(); renderTopbar(null); return; }
@@ -254,6 +288,7 @@ function render(){
   if(second === "_cards"){ renderAllFlashcards(examKey); return; }
   if(second === "_weak"){ renderWeakSpots(examKey); return; }
   if(second === "_export"){ renderExportPage(examKey); return; }
+  if(second === "_glossary"){ renderGlossary(examKey); return; }
 
   var chId = second;
   var chapter = DATA[examKey].chapters.find(function(c){ return c.id===chId; });
@@ -270,6 +305,7 @@ function renderTopbar(activeExam){
   }).join("");
 
   bar.innerHTML =
+    (activeExam ? '<button class="icon-btn menu-btn" id="menuBtn" title="Menu">'+ICON.menu+'</button>' : '') +
     '<div class="brand" id="brandHome"><div class="mark">C</div><div><div>CISI Revision Hub</div><div class="sub">Level 3 &middot; Exam prep</div></div></div>' +
     '<div class="exam-switcher" id="examSwitcher">'+switcherHtml+'</div>' +
     '<div class="topbar-spacer"></div>' +
@@ -278,6 +314,9 @@ function renderTopbar(activeExam){
       '<div class="search-results" id="searchResults"></div>'+
     '</div>' +
     '<button class="icon-btn" id="themeBtn" title="Toggle theme"><span id="themeIcon"></span></button>';
+
+  var menuBtn = document.getElementById("menuBtn");
+  if(menuBtn) menuBtn.onclick = function(e){ e.stopPropagation(); toggleSidebar(); };
 
   document.getElementById("brandHome").onclick = function(){ navigate([]); };
   Array.prototype.forEach.call(bar.querySelectorAll("#examSwitcher button"), function(b){
@@ -319,6 +358,12 @@ function doSearch(examKey, qRaw){
           hits.push({ kind: examTitle(ek)+" · Flashcard", title: fc.front, snippet: fc.back, go:[ek, ch.id, "flashcards"] });
         }
       });
+    });
+    (exam.glossary||[]).forEach(function(g){
+      var t = (g.term+" "+(g.definition||"")).toLowerCase();
+      if(t.indexOf(q)!==-1){
+        hits.push({ kind: examTitle(ek)+" · Glossary", title: g.term, snippet: g.definition, go:[ek, "_glossary"] });
+      }
     });
   });
   if(hits.length===0){
@@ -399,10 +444,12 @@ function renderExamOverview(examKey){
 
   app.innerHTML =
     '<div class="main-narrow">' +
+    backRow("Home") +
     '<div class="overview-head">' +
       '<div><h1>'+esc(exam.title)+'</h1><div class="fmt">'+esc(exam.examFormat)+'</div></div>' +
       '<div class="overview-actions">' +
         (nWeak>0 ? '<button class="btn" id="weakBtn" style="border-color:var(--red);color:var(--red);">'+ICON.target+' Weak spots ('+nWeak+')</button>' : '') +
+        '<button class="btn" id="glossaryBtn">'+ICON.glossary+' Glossary</button>' +
         '<button class="btn" id="exportBtn">'+ICON.pdf+' Export PDF</button>' +
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
         '<button class="btn btn-primary" id="fullQuizBtn">'+ICON.quiz+' Full exam simulation</button>' +
@@ -417,11 +464,13 @@ function renderExamOverview(examKey){
     '<div class="chapter-grid">'+rows+'</div>' +
     '</div>';
 
+  wireBack(app, []);
   Array.prototype.forEach.call(app.querySelectorAll(".chapter-row"), function(el){
     el.onclick = function(){ navigate([examKey, el.getAttribute("data-ch"), "summary"]); };
   });
   document.getElementById("fullQuizBtn").onclick = function(){ navigate([examKey, "_quiz"]); };
   document.getElementById("allCardsBtn").onclick = function(){ navigate([examKey, "_cards"]); };
+  document.getElementById("glossaryBtn").onclick = function(){ navigate([examKey, "_glossary"]); };
   var wb = document.getElementById("weakBtn");
   if(wb) wb.onclick = function(){ navigate([examKey, "_weak"]); };
   document.getElementById("exportBtn").onclick = function(){ navigate([examKey, "_export"]); };
@@ -473,6 +522,7 @@ function renderChapter(examKey, chapter, tab){
 
   app.innerHTML =
     '<div class="chapter-head">' +
+      backRow(DATA[examKey].title) +
       '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(DATA[examKey].title)+'</a> / '+esc(chapter.title)+'</div>' +
       '<h1>'+chapter.number+'. '+esc(chapter.title)+'</h1>' +
       (chapter.examWeight? '<span class="weight-badge">'+ICON.target+' '+esc(chapter.examWeight)+'</span>' : '') +
@@ -480,6 +530,7 @@ function renderChapter(examKey, chapter, tab){
     '<div class="tabbar" id="tabbar">'+tabHtml+'</div>' +
     '<div id="tabContent"></div>';
 
+  wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   Array.prototype.forEach.call(app.querySelectorAll("#tabbar button"), function(b){
@@ -752,9 +803,11 @@ function renderWeakSpots(examKey){
   var exam = DATA[examKey];
   var qs = shuffle(weakQuestions(examKey));
   app.innerHTML = '<div class="quiz-shell">' +
-    '<div class="chapter-head"><div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Weak spots</div>' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Weak spots</div>' +
     '<h1>Weak spots</h1><div class="fmt">Every question you\'ve gotten wrong so far, across all chapters. Answer correctly to clear it from this list.</div></div>' +
     '<div id="weakBody"></div></div>';
+  wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   var body = document.getElementById("weakBody");
@@ -778,7 +831,8 @@ function renderExportPage(examKey){
   }).join("");
 
   app.innerHTML = '<div class="main-narrow">' +
-    '<div class="chapter-head"><div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Export PDF</div>' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Export PDF</div>' +
     '<h1>Export to PDF</h1><div class="fmt">Pick what to include, then your browser\'s print dialog opens — choose "Save as PDF" as the destination.</div></div>' +
     '<div class="export-panel">' +
       '<div class="export-section-title">Content to include</div>' +
@@ -797,6 +851,7 @@ function renderExportPage(examKey){
     '</div>' +
   '</div>';
 
+  wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
 
@@ -819,6 +874,65 @@ function renderExportPage(examKey){
       .map(function(cb){ return cb.getAttribute("data-ch"); });
     if(ids.length===0){ alert("Pick at least one chapter first."); return; }
     generatePrintDoc(examKey, ids, mode);
+  };
+}
+
+/* ---------- glossary ---------- */
+function renderGlossary(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var terms = (exam.glossary || []).slice().sort(function(a,b){ return a.term.localeCompare(b.term); });
+
+  if(terms.length===0){
+    app.innerHTML = '<div class="main-narrow"><div class="chapter-head">' + backRow(exam.title) +
+      '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Glossary</div>' +
+      '<h1>Glossary</h1></div><div class="empty-state">No glossary yet for '+esc(exam.title)+'.</div></div>';
+    wireBack(app, [examKey]);
+    app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+    app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+    return;
+  }
+
+  var chapterNames = {};
+  exam.chapters.forEach(function(ch){ chapterNames[ch.number] = ch.title; });
+
+  function cardHtml(t){
+    var chars = (t.chars||[]).map(function(c){ return '<li>'+esc(c)+'</li>'; }).join("");
+    return '<div class="gloss-card" data-term="'+esc(t.term.toLowerCase())+'" data-def="'+esc((t.definition||"").toLowerCase())+'">' +
+      '<div class="gloss-head"><span class="gloss-term">'+esc(t.term)+'</span>'+(t.chapter?'<span class="gloss-ch">Ch.'+t.chapter+'</span>':'')+'</div>' +
+      '<div class="gloss-def">'+esc(t.definition)+'</div>' +
+      (chars ? '<ul class="gloss-chars">'+chars+'</ul>' : '') +
+    '</div>';
+  }
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+      '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Glossary</div>' +
+      '<h1>Glossary</h1><div class="fmt">'+terms.length+' key terms, definitions and main characteristics — search or jump to a letter.</div>' +
+    '</div>' +
+    '<div class="gloss-toolbar">' +
+      '<div class="search-box gloss-search">'+ICON.search+'<input type="text" id="glossSearch" placeholder="Search terms…" autocomplete="off"/></div>' +
+    '</div>' +
+    '<div class="gloss-list" id="glossList">' + terms.map(cardHtml).join("") + '</div>' +
+    '<div class="empty-state" id="glossEmpty" style="display:none;">No terms match your search.</div>' +
+  '</div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var input = document.getElementById("glossSearch");
+  var cards = Array.prototype.slice.call(document.querySelectorAll(".gloss-card"));
+  var emptyMsg = document.getElementById("glossEmpty");
+  input.oninput = function(){
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    cards.forEach(function(c){
+      var match = !q || c.getAttribute("data-term").indexOf(q)!==-1 || c.getAttribute("data-def").indexOf(q)!==-1;
+      c.style.display = match ? "" : "none";
+      if(match) shown++;
+    });
+    emptyMsg.style.display = shown===0 ? "" : "none";
   };
 }
 
@@ -886,7 +1000,8 @@ function renderFullQuiz(examKey){
   exam.chapters.forEach(function(ch){ (ch.mcqs||[]).forEach(function(q,i){ all.push(Object.assign({}, q, { _chapter: ch.title, _chId: ch.id, _qid: ch.id+"::"+i })); }); });
 
   app.innerHTML = '<div class="quiz-shell">' +
-    '<div class="chapter-head"><div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Full exam simulation</div>' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Full exam simulation</div>' +
     '<h1>Full exam simulation</h1></div>' +
     '<div class="quiz-config">' +
       '<div>How many questions?</div>' +
@@ -896,6 +1011,7 @@ function renderFullQuiz(examKey){
       '<button class="btn btn-primary" id="startFullQuiz" style="align-self:flex-start;">'+ICON.quiz+' Start</button>' +
     '</div></div>';
 
+  wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
 
@@ -1103,7 +1219,8 @@ function renderAllFlashcards(examKey){
   exam.chapters.forEach(function(ch){
     (ch.flashcards||[]).forEach(function(fc,i){ cards.push(Object.assign({}, fc, { _id: examKey+":"+ch.id+":"+i, _chapter: ch.title })); });
   });
-  app.innerHTML = '<div class="chapter-head"><div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1></div><div id="fcRoot"></div>';
+  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1></div><div id="fcRoot"></div>';
+  wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   runFlashcardUI(document.getElementById("fcRoot"), examKey, exam.title+" — all chapters", cards);
