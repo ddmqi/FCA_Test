@@ -285,6 +285,7 @@ function render(){
 
   var second = parts[1];
   if(second === "_quiz"){ renderFullQuiz(examKey); return; }
+  if(second === "_cisiquiz"){ renderCisiFullQuiz(examKey); return; }
   if(second === "_cards"){ renderAllFlashcards(examKey); return; }
   if(second === "_weak"){ renderWeakSpots(examKey); return; }
   if(second === "_export"){ renderExportPage(examKey); return; }
@@ -441,6 +442,7 @@ function renderExamOverview(examKey){
 
   var readiness = examReadiness(examKey);
   var nWeak = weakCount(examKey);
+  var cisiTotal = exam.chapters.reduce(function(s,ch){ return s + (ch.cisiMcqs?ch.cisiMcqs.length:0); }, 0);
 
   app.innerHTML =
     '<div class="main-narrow">' +
@@ -452,6 +454,7 @@ function renderExamOverview(examKey){
         '<button class="btn" id="glossaryBtn">'+ICON.glossary+' Glossary</button>' +
         '<button class="btn" id="exportBtn">'+ICON.pdf+' Export PDF</button>' +
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
+        (cisiTotal>0 ? '<button class="btn btn-primary" id="cisiExamBtn">'+ICON.quiz+' CISI exam mode ('+cisiTotal+')</button>' : '') +
         '<button class="btn btn-primary" id="fullQuizBtn">'+ICON.quiz+' Full exam simulation</button>' +
       '</div>' +
     '</div>' +
@@ -471,6 +474,8 @@ function renderExamOverview(examKey){
   document.getElementById("fullQuizBtn").onclick = function(){ navigate([examKey, "_quiz"]); };
   document.getElementById("allCardsBtn").onclick = function(){ navigate([examKey, "_cards"]); };
   document.getElementById("glossaryBtn").onclick = function(){ navigate([examKey, "_glossary"]); };
+  var cb = document.getElementById("cisiExamBtn");
+  if(cb) cb.onclick = function(){ navigate([examKey, "_cisiquiz"]); };
   var wb = document.getElementById("weakBtn");
   if(wb) wb.onclick = function(){ navigate([examKey, "_weak"]); };
   document.getElementById("exportBtn").onclick = function(){ navigate([examKey, "_export"]); };
@@ -1049,6 +1054,81 @@ function renderFullQuiz(examKey){
       Object.keys(byChapter).forEach(function(chId){
         var b = byChapter[chId];
         recordQuizResult(examKey, chId, pct(b.correct, b.total));
+      });
+    }, { isFullExam:true, timerSeconds: timed ? chosen*EXAM_SECONDS_PER_Q : null });
+  };
+}
+
+/* ---------- CISI exam mode: official competency-test questions, randomly mixed across ALL chapters ---------- */
+function renderCisiFullQuiz(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var all = [];
+  exam.chapters.forEach(function(ch){
+    (ch.cisiMcqs||[]).forEach(function(q,i){
+      all.push(Object.assign({}, q, { _chapter: ch.title, _chId: ch.id, _qid: ch.id+"::cisi::"+i }));
+    });
+  });
+
+  if(all.length===0){
+    app.innerHTML = '<div class="quiz-shell"><div class="chapter-head">'+backRow(exam.title)+
+      '<h1>CISI exam mode</h1></div><div class="empty-state">No CISI questions available for '+esc(exam.title)+' yet.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+
+  app.innerHTML = '<div class="quiz-shell">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / CISI exam mode</div>' +
+    '<h1>CISI exam mode</h1><div class="fmt">Official CISI-style questions, randomly mixed across all '+exam.chapterCount+' chapters ('+all.length+' available).</div></div>' +
+    '<div class="quiz-config">' +
+      '<div>How many questions?</div>' +
+      '<div class="qty-chips" id="lenChips"></div>' +
+      '<div>Timed?</div>' +
+      '<div class="opt-row" id="timeChips"></div>' +
+      '<button class="btn btn-primary" id="startCisiQuiz" style="align-self:flex-start;">'+ICON.quiz+' Start</button>' +
+    '</div></div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var options = [];
+  for(var n=10; n<all.length; n+=10) options.push(n);
+  options.push(all.length);
+  var chosen = options[0];
+  var timed = true;
+  var chips = document.getElementById("lenChips");
+  chips.innerHTML = options.map(function(n,i){
+    return '<button class="chip qty-chip '+(i===0?"active":"")+'" data-n="'+n+'">'+n+(n===all.length?' (all)':'')+'</button>';
+  }).join("");
+  Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(c){
+    c.onclick = function(){
+      Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(x){x.classList.remove("active");});
+      c.classList.add("active"); chosen = +c.getAttribute("data-n");
+      updateTimeLabel();
+    };
+  });
+  var timeChips = document.getElementById("timeChips");
+  function timeLabel(n){ var s = n*EXAM_SECONDS_PER_Q; return "Timed ("+Math.round(s/60)+" min)"; }
+  function renderTimeChips(){
+    timeChips.innerHTML =
+      '<button class="chip '+(timed?"active":"")+'" data-t="1">'+timeLabel(chosen)+'</button>' +
+      '<button class="chip '+(!timed?"active":"")+'" data-t="0">Untimed</button>';
+    Array.prototype.forEach.call(timeChips.querySelectorAll(".chip"), function(c){
+      c.onclick = function(){ timed = c.getAttribute("data-t")==="1"; renderTimeChips(); };
+    });
+  }
+  function updateTimeLabel(){ renderTimeChips(); }
+  renderTimeChips();
+
+  document.getElementById("startCisiQuiz").onclick = function(){
+    var set = shuffle(all).slice(0, chosen);
+    var container = document.querySelector(".quiz-shell");
+    runQuizUI(container, examKey, exam.title+" — CISI exam mode", set, function(pctScore, byChapter){
+      Object.keys(byChapter).forEach(function(chId){
+        var b = byChapter[chId];
+        recordQuizResult(examKey, chId+"_cisi", pct(b.correct, b.total));
       });
     }, { isFullExam:true, timerSeconds: timed ? chosen*EXAM_SECONDS_PER_Q : null });
   };
