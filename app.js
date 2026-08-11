@@ -122,7 +122,8 @@ var ICON = {
   refresh:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>',
   home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>',
   pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15h1.5a1.5 1.5 0 0 0 0-3H9v5"/><path d="M13.5 12v5h1a2 2 0 0 0 0-4"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  map:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.4"/><circle cx="5" cy="14" r="2.4"/><circle cx="19" cy="14" r="2.4"/><circle cx="8" cy="20.5" r="1.8"/><circle cx="16" cy="20.5" r="1.8"/><path d="M10.3 6.9 6.7 12.1M13.7 6.9l3.6 5.2M6.3 16.1 7.3 18.7M17.7 16.1l-1 2.6M7.8 15h8.4"/></svg>'
 };
 
 /* ---------- payoff diagrams (SVG, drawn live so they follow the theme) ---------- */
@@ -459,6 +460,7 @@ function renderChapter(examKey, chapter, tab){
   var tabs = [
     ["summary","Summary", ICON.book],
     ["detail","Detailed notes", ICON.book],
+    ["mindmap","Mind map", ICON.map],
     ["quiz","Quiz ("+(chapter.mcqs?chapter.mcqs.length:0)+")", ICON.quiz],
     ["flashcards","Flashcards ("+(chapter.flashcards?chapter.flashcards.length:0)+")", ICON.cards]
   ];
@@ -487,6 +489,7 @@ function renderChapter(examKey, chapter, tab){
   var content = document.getElementById("tabContent");
   if(tab==="summary") renderSummaryTab(content, chapter);
   else if(tab==="detail") renderDetailTab(content, chapter);
+  else if(tab==="mindmap") renderMindMapTab(content, chapter);
   else if(tab==="quiz") renderQuizTab(content, examKey, chapter);
   else if(tab==="cisiQuiz") renderCisiQuizTab(content, examKey, chapter);
   else if(tab==="flashcards") renderFlashcardsTab(content, examKey, chapter);
@@ -504,24 +507,243 @@ function renderDetailTab(content, chapter){
   attachDiagrams(content);
 }
 
+/* ---------- mind map (auto-built from the chapter's sections/sub-headings so it always reflects the notes) ---------- */
+var MM_PALETTE = ["#e0764f","#4f9de0","#5fb37a","#c98fe0","#e0b256","#4fc4c9","#e05f8a","#8fa3e0","#9fc95f","#e08f4f","#5f8ae0","#c95f9f"];
+
+function mmStrip(text){
+  return String(text||"").replace(/^\s*\d+(\.\d+)*\.?\s*/, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+function mmTruncate(text, n){
+  text = String(text||"");
+  return text.length>n ? text.slice(0,n-1).trim()+"…" : text;
+}
+function buildMindMapModel(chapter){
+  var branches = (chapter.sections||[]).map(function(section){
+    var h4re = /<h4>([\s\S]*?)<\/h4>/g, m, kids = [];
+    while((m = h4re.exec(section.html))){ kids.push(mmStrip(m[1].replace(/<[^>]+>/g,""))); }
+    if(kids.length===0) kids = [""]; // keep an angular slot even if no sub-headings
+    return { label: mmStrip(section.heading), kids: kids.filter(Boolean) };
+  }).filter(function(b){ return b.label; });
+  if(branches.length===0) return null;
+
+  var cx = 1000, cy = 1000, R1 = 300, R2 = 640;
+  var totalSlots = branches.reduce(function(s,b){ return s + Math.max(b.kids.length,1); }, 0);
+  var angle = -Math.PI/2, nodes = [], links = [];
+  branches.forEach(function(b, bi){
+    var slotCount = Math.max(b.kids.length,1);
+    var slice = (slotCount/totalSlots) * Math.PI*2;
+    var mid = angle + slice/2;
+    var color = MM_PALETTE[bi % MM_PALETTE.length];
+    var bx = cx + R1*Math.cos(mid), by = cy + R1*Math.sin(mid);
+    nodes.push({ x:bx, y:by, label:mmTruncate(b.label,46), level:1, color:color });
+    links.push({ x1:cx, y1:cy, x2:bx, y2:by, color:color });
+    if(b.kids.length){
+      var childStart = angle, step = slice / b.kids.length;
+      b.kids.forEach(function(k, ki){
+        var ca = childStart + step*(ki+0.5);
+        var kx = cx + R2*Math.cos(ca), ky = cy + R2*Math.sin(ca);
+        nodes.push({ x:kx, y:ky, label:mmTruncate(k,40), level:2, color:color });
+        links.push({ x1:bx, y1:by, x2:kx, y2:ky, color:color });
+      });
+    }
+    angle += slice;
+  });
+  return { cx:cx, cy:cy, nodes:nodes, links:links, centerLabel: mmTruncate(chapter.title,26) };
+}
+
+function renderMindMapTab(content, chapter){
+  if(chapter.id === "reg-ch1"){ renderCuratedMindMap(content, buildRegulatorMap()); return; }
+  var model = buildMindMapModel(chapter);
+  if(!model){ content.innerHTML = '<div class="empty-state">No notes available to build a mind map from yet.</div>'; return; }
+  renderGeneratedMindMap(content, model);
+}
+
+/* Hand-authored: how the UK regulators relate to each other (from the ch.1 notes) */
+function buildRegulatorMap(){
+  var C = { gov:"#8fa3e0", boe:"#4fc4c9", fca:"#e0b256", mixed:"#c98fe0", intl:"#e0764f", neutral:"#9aa3b5" };
+  var nodes = [
+    { id:"hmt",   x:700,  y:70,  w:230, main:"HM Treasury", sub:"Gov't dept · overall responsibility", color:C.gov },
+    { id:"boe",   x:380,  y:250, w:210, main:"Bank of England", sub:"Central bank", color:C.boe },
+    { id:"fca",   x:950,  y:250, w:210, main:"FCA", sub:"Financial Conduct Authority", color:C.fca },
+    { id:"pra",   x:210,  y:440, w:190, main:"PRA", sub:"Prudential Regulation Authority", color:C.boe },
+    { id:"fpc",   x:400,  y:440, w:170, main:"FPC", sub:"Financial Policy Committee", color:C.boe },
+    { id:"mpc",   x:570,  y:440, w:170, main:"MPC", sub:"Monetary Policy Committee", color:C.boe },
+    { id:"fos",   x:840,  y:440, w:180, main:"FOS", sub:"Financial Ombudsman Service", color:C.fca },
+    { id:"fscs",  x:1040, y:440, w:200, main:"FSCS", sub:"Compensation scheme", color:C.mixed },
+    { id:"firms", x:620,  y:620, w:230, main:"Authorised Firms", sub:"Dual- & solo-regulated", color:C.neutral },
+    { id:"cma",   x:1260, y:250, w:190, main:"CMA", sub:"Competition & Markets Authority", color:C.neutral },
+    { id:"hmrc",  x:1260, y:440, w:190, main:"HMRC", sub:"Tax authority", color:C.neutral },
+    { id:"tpr",   x:1260, y:620, w:190, main:"TPR", sub:"The Pensions Regulator", color:C.neutral },
+    { id:"fatf",  x:330,  y:800, w:190, main:"FATF", sub:"AML/CTF standards (int'l)", color:C.intl },
+    { id:"bis",   x:700,  y:800, w:190, main:"BIS", sub:"Central bank of central banks", color:C.intl },
+    { id:"iosco", x:1070, y:800, w:190, main:"IOSCO", sub:"Securities standards (int'l)", color:C.intl }
+  ];
+  var edges = [
+    { from:"hmt", to:"fca", label:"appoints CEO/chair · FCA reports to HMT" },
+    { from:"hmt", to:"boe", label:"works with", dashed:true },
+    { from:"hmt", to:"tpr", label:"sponsors", dashed:true },
+    { from:"boe", to:"pra", label:"part of (via PRC)" },
+    { from:"boe", to:"fpc", label:"part of" },
+    { from:"boe", to:"mpc", label:"part of" },
+    { from:"pra", to:"firms", label:"prudential supervision" },
+    { from:"fca", to:"firms", label:"conduct supervision" },
+    { from:"fca", to:"pra", label:"twin peaks — shared firms", dashed:true },
+    { from:"fca", to:"fos", label:"oversees" },
+    { from:"fca", to:"fscs", label:"jointly funds/oversees" },
+    { from:"pra", to:"fscs", label:"jointly funds/oversees" },
+    { from:"fca", to:"cma", label:"works closely with", dashed:true },
+    { from:"fca", to:"hmrc", label:"info-sharing", dashed:true },
+    { from:"pra", to:"hmrc", label:"info-sharing", dashed:true },
+    { from:"fatf", to:"fca", label:"AML/CTF standards", dashed:true },
+    { from:"fatf", to:"pra", label:"", dashed:true },
+    { from:"bis", to:"pra", label:"prudential standards", dashed:true },
+    { from:"iosco", to:"fca", label:"securities standards", dashed:true }
+  ];
+  var byId = {}; nodes.forEach(function(n){ byId[n.id]=n; });
+  return { nodes:nodes, edges:edges, byId:byId, w:1500, h:900 };
+}
+
+function renderCuratedMindMap(content, g){
+  var linksHtml = g.edges.map(function(e){
+    var a = g.byId[e.from], b = g.byId[e.to];
+    var midx = (a.x+b.x)/2, midy = (a.y+b.y)/2;
+    var line = '<line x1="'+a.x+'" y1="'+a.y+'" x2="'+b.x+'" y2="'+b.y+'" stroke="'+(a.color)+'" stroke-width="2.5" opacity="0.5"'+(e.dashed?' stroke-dasharray="6,6"':'')+'/>';
+    var labelHtml = "";
+    if(e.label){
+      labelHtml = '<foreignObject x="'+(midx-90)+'" y="'+(midy-13)+'" width="180" height="26">' +
+        '<div xmlns="http://www.w3.org/1999/xhtml" class="mm-edge-label">'+esc(e.label)+'</div>' +
+      '</foreignObject>';
+    }
+    return line + labelHtml;
+  }).join("");
+  var nodesHtml = g.nodes.map(function(n){
+    var h = 60;
+    return '<foreignObject x="'+(n.x-n.w/2)+'" y="'+(n.y-h/2)+'" width="'+n.w+'" height="'+h+'">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml" class="mm-node mm-reg" style="border-color:'+n.color+';">' +
+        '<span class="mm-reg-main">'+esc(n.main)+'</span><span class="mm-reg-sub">'+esc(n.sub)+'</span>' +
+      '</div>' +
+    '</foreignObject>';
+  }).join("");
+
+  content.innerHTML =
+    '<div class="mindmap-toolbar">' +
+      '<span class="mm-hint">Drag to pan · pinch or use buttons to zoom · dashed = informal/indirect link</span>' +
+      '<div class="mm-zoombtns">' +
+        '<button class="btn btn-sm" id="mmZoomOut">−</button>' +
+        '<button class="btn btn-sm" id="mmZoomReset">Reset</button>' +
+        '<button class="btn btn-sm" id="mmZoomIn">+</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="mindmap-wrap" id="mmWrap">' +
+      '<svg id="mmSvg" viewBox="0 0 '+g.w+' '+g.h+'" width="'+g.w+'" height="'+g.h+'" style="transform-origin:0 0;">' +
+        linksHtml + nodesHtml +
+      '</svg>' +
+    '</div>';
+
+  wireMindMapControls(g.w, g.h, 0.62);
+}
+
+function renderGeneratedMindMap(content, model){
+  var linksHtml = model.links.map(function(l){
+    return '<line x1="'+l.x1+'" y1="'+l.y1+'" x2="'+l.x2+'" y2="'+l.y2+'" stroke="'+l.color+'" stroke-width="2.5" opacity="0.45"/>';
+  }).join("");
+  var nodesHtml = model.nodes.map(function(n){
+    var w = n.level===1 ? 200 : 168, h = n.level===1 ? 56 : 46;
+    return '<foreignObject x="'+(n.x-w/2)+'" y="'+(n.y-h/2)+'" width="'+w+'" height="'+h+'">' +
+      '<div xmlns="http://www.w3.org/1999/xhtml" class="mm-node mm-lvl'+n.level+'" style="border-color:'+n.color+';">'+esc(n.label)+'</div>' +
+    '</foreignObject>';
+  }).join("");
+  var centerHtml = '<foreignObject x="'+(model.cx-110)+'" y="'+(model.cy-40)+'" width="220" height="80">' +
+    '<div xmlns="http://www.w3.org/1999/xhtml" class="mm-node mm-center">'+esc(model.centerLabel)+'</div>' +
+  '</foreignObject>';
+
+  content.innerHTML =
+    '<div class="mindmap-toolbar">' +
+      '<span class="mm-hint">Drag to pan · pinch or use buttons to zoom</span>' +
+      '<div class="mm-zoombtns">' +
+        '<button class="btn btn-sm" id="mmZoomOut">−</button>' +
+        '<button class="btn btn-sm" id="mmZoomReset">Reset</button>' +
+        '<button class="btn btn-sm" id="mmZoomIn">+</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="mindmap-wrap" id="mmWrap">' +
+      '<svg id="mmSvg" viewBox="0 0 2000 2000" width="2000" height="2000" style="transform-origin:0 0;">' +
+        linksHtml + nodesHtml + centerHtml +
+      '</svg>' +
+    '</div>';
+
+  wireMindMapControls(2000, 2000, 0.5);
+}
+
+function wireMindMapControls(vbW, vbH, initialScale){
+  var wrap = document.getElementById("mmWrap");
+  var svg = document.getElementById("mmSvg");
+  var scale = initialScale;
+  function applyScale(){ svg.style.transform = "scale("+scale+")"; }
+  function center(){
+    applyScale();
+    wrap.scrollLeft = (vbW*scale - wrap.clientWidth)/2;
+    wrap.scrollTop = (vbH*scale - wrap.clientHeight)/2;
+  }
+  center();
+  document.getElementById("mmZoomIn").onclick = function(){ scale = Math.min(scale+0.15, 1.6); applyScale(); };
+  document.getElementById("mmZoomOut").onclick = function(){ scale = Math.max(scale-0.15, 0.2); applyScale(); };
+  document.getElementById("mmZoomReset").onclick = function(){ scale = initialScale; center(); };
+
+  var dragging = false, lastX=0, lastY=0;
+  function down(x,y){ dragging = true; lastX=x; lastY=y; }
+  function move(x,y){ if(!dragging) return; wrap.scrollLeft -= (x-lastX); wrap.scrollTop -= (y-lastY); lastX=x; lastY=y; }
+  function up(){ dragging = false; }
+  wrap.addEventListener("mousedown", function(e){ down(e.clientX,e.clientY); });
+  window.addEventListener("mousemove", function(e){ move(e.clientX,e.clientY); });
+  window.addEventListener("mouseup", up);
+  wrap.addEventListener("touchstart", function(e){ if(e.touches.length===1) down(e.touches[0].clientX,e.touches[0].clientY); }, {passive:true});
+  wrap.addEventListener("touchmove", function(e){ if(e.touches.length===1) move(e.touches[0].clientX,e.touches[0].clientY); }, {passive:true});
+  wrap.addEventListener("touchend", up);
+}
+
 /* ---------- quiz (chapter-level) ---------- */
 function renderQuizTab(content, examKey, chapter){
   var mcqs = chapter.mcqs || [];
   if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No questions for this chapter yet.</div>'; return; }
-  var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::"+i, _chId: chapter.id, _chapter: chapter.title }); });
-  runQuizUI(content, examKey, chapter.title, shuffle(tagged), function(pct){
-    recordQuizResult(examKey, chapter.id, pct);
-  }, { chapterId: chapter.id });
+  renderQuizSetup(content, mcqs.length, function(count){
+    var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::"+i, _chId: chapter.id, _chapter: chapter.title }); });
+    var picked = shuffle(tagged).slice(0, count);
+    runQuizUI(content, examKey, chapter.title, picked, function(pct){
+      recordQuizResult(examKey, chapter.id, pct);
+    }, { chapterId: chapter.id });
+  });
 }
 
 /* ---------- quiz CISI (official CISI competency-test questions, separate from the curated practice quiz) ---------- */
 function renderCisiQuizTab(content, examKey, chapter){
   var mcqs = chapter.cisiMcqs || [];
   if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No CISI questions for this chapter yet.</div>'; return; }
-  var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::cisi::"+i, _chId: chapter.id, _chapter: chapter.title }); });
-  runQuizUI(content, examKey, chapter.title+" — CISI questions", shuffle(tagged), function(pct){
-    recordQuizResult(examKey, chapter.id+"_cisi", pct);
-  }, { chapterId: chapter.id+"_cisi" });
+  renderQuizSetup(content, mcqs.length, function(count){
+    var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::cisi::"+i, _chId: chapter.id, _chapter: chapter.title }); });
+    var picked = shuffle(tagged).slice(0, count);
+    runQuizUI(content, examKey, chapter.title+" — CISI questions", picked, function(pct){
+      recordQuizResult(examKey, chapter.id+"_cisi", pct);
+    }, { chapterId: chapter.id+"_cisi" });
+  });
+}
+
+/* ---------- question-count picker (increments of 10, up to the full set) ---------- */
+function renderQuizSetup(content, total, onStart){
+  var options = [];
+  for(var n=10; n<total; n+=10) options.push(n);
+  options.push(total);
+  var chipHtml = options.map(function(n, i){
+    return '<button class="chip qty-chip" data-n="'+n+'"'+(i===options.length-1?' data-all="1"':'')+'>'+n+(n===total?' (all)':'')+'</button>';
+  }).join("");
+  content.innerHTML =
+    '<div class="quiz-setup">' +
+      '<div class="quiz-setup-label">How many questions do you want to revise?</div>' +
+      '<div class="qty-chips">'+chipHtml+'</div>' +
+    '</div>';
+  Array.prototype.forEach.call(content.querySelectorAll(".qty-chip"), function(btn){
+    btn.onclick = function(){ onStart(+btn.getAttribute("data-n")); };
+  });
 }
 
 /* ---------- weak spots ---------- */
