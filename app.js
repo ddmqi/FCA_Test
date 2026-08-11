@@ -462,6 +462,9 @@ function renderChapter(examKey, chapter, tab){
     ["quiz","Quiz ("+(chapter.mcqs?chapter.mcqs.length:0)+")", ICON.quiz],
     ["flashcards","Flashcards ("+(chapter.flashcards?chapter.flashcards.length:0)+")", ICON.cards]
   ];
+  if(chapter.cisiMcqs && chapter.cisiMcqs.length){
+    tabs.push(["cisiQuiz","Quiz CISI ("+chapter.cisiMcqs.length+")", ICON.quiz]);
+  }
   var tabHtml = tabs.map(function(t){
     return '<button data-tab="'+t[0]+'" class="'+(t[0]===tab?"active":"")+'">'+t[1]+'</button>';
   }).join("");
@@ -485,6 +488,7 @@ function renderChapter(examKey, chapter, tab){
   if(tab==="summary") renderSummaryTab(content, chapter);
   else if(tab==="detail") renderDetailTab(content, chapter);
   else if(tab==="quiz") renderQuizTab(content, examKey, chapter);
+  else if(tab==="cisiQuiz") renderCisiQuizTab(content, examKey, chapter);
   else if(tab==="flashcards") renderFlashcardsTab(content, examKey, chapter);
   else renderSummaryTab(content, chapter);
 }
@@ -508,6 +512,16 @@ function renderQuizTab(content, examKey, chapter){
   runQuizUI(content, examKey, chapter.title, shuffle(tagged), function(pct){
     recordQuizResult(examKey, chapter.id, pct);
   }, { chapterId: chapter.id });
+}
+
+/* ---------- quiz CISI (official CISI competency-test questions, separate from the curated practice quiz) ---------- */
+function renderCisiQuizTab(content, examKey, chapter){
+  var mcqs = chapter.cisiMcqs || [];
+  if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No CISI questions for this chapter yet.</div>'; return; }
+  var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::cisi::"+i, _chId: chapter.id, _chapter: chapter.title }); });
+  runQuizUI(content, examKey, chapter.title+" — CISI questions", shuffle(tagged), function(pct){
+    recordQuizResult(examKey, chapter.id+"_cisi", pct);
+  }, { chapterId: chapter.id+"_cisi" });
 }
 
 /* ---------- weak spots ---------- */
