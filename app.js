@@ -562,7 +562,14 @@ function renderChapter(examKey, chapter, tab){
 }
 
 function renderSummaryTab(content, chapter){
-  content.innerHTML = '<div class="summary-card"><div class="prose">'+(chapter.summaryHtml||"<p>No summary available.</p>")+'</div></div>';
+  var focusHtml = "";
+  if(chapter.examFocus && chapter.examFocus.length){
+    focusHtml = '<div class="exam-focus-box">' +
+      '<div class="exam-focus-title">'+ICON.target+' What actually gets tested — based on the CISI &amp; Mock question bank</div>' +
+      '<ul>' + chapter.examFocus.map(function(pt){ return '<li>'+pt+'</li>'; }).join("") + '</ul>' +
+    '</div>';
+  }
+  content.innerHTML = focusHtml + '<div class="summary-card"><div class="prose">'+(chapter.summaryHtml||"<p>No summary available.</p>")+'</div></div>';
 }
 function renderDetailTab(content, chapter){
   var secs = (chapter.sections||[]).map(function(s){
@@ -1203,7 +1210,7 @@ function renderMockExamRunner(examKey, mockId){
   app.querySelector('[data-nav="mocks"]').onclick = function(){ navigate([examKey, "_mocks"]); };
 
   document.getElementById("startMock").onclick = function(){
-    var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: "mock_"+mock.id+"::"+i, _chId: "mock_"+mock.id, _chapter: mock.title }); });
+    var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title }); });
     var container = document.querySelector(".quiz-shell");
     runQuizUI(container, examKey, mock.title, tagged, function(pctScore){
       recordQuizResult(examKey, "mock_"+mock.id, pctScore);
@@ -1224,15 +1231,23 @@ function fmtClock(sec){
   return m+":"+(s<10?"0":"")+s;
 }
 
+function chapterTitle(examKey, chId){
+  var ch = DATA[examKey] && DATA[examKey].chapters.find(function(c){ return c.id===chId; });
+  return ch ? ch.title : chId;
+}
+
 function runQuizUI(container, examKey, label, questions, onFinish, opts){
   opts = opts || {};
   stopActiveTimer(); stopActiveQuizKeys();
-  var idx = 0, correctCount = 0, answered = null;
+  var idx = 0, correctCount = 0;
   var byChapter = {}; // chId -> {correct,total}
   var wrongOnes = [];
   var timeLeft = opts.timerSeconds || null;
+  var timerStarted = false;
   var timedOut = false;
   var letters = ["A","B","C","D","E","F"];
+  var answeredMap = {}; // idx -> {chosen, correct}
+  var showNav = !!opts.isFullExam;
 
   function timerHtml(){
     if(timeLeft===null) return "";
@@ -1240,7 +1255,8 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
     return '<div class="quiz-timer'+(low?' low':'')+'" id="quizTimer" style="margin-left:10px;font-weight:700;font-size:12.5px;color:'+(low?'var(--red)':'var(--text-faint)')+';white-space:nowrap;">&#9202; '+fmtClock(timeLeft)+'</div>';
   }
   function startTimer(){
-    if(timeLeft===null) return;
+    if(timeLeft===null || timerStarted) return;
+    timerStarted = true;
     stopActiveTimer();
     window.__cisiTimerInterval = setInterval(function(){
       timeLeft--;
@@ -1254,36 +1270,72 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
     }, 1000);
   }
 
+  function liveGaugeHtml(){
+    var answeredCount = Object.keys(answeredMap).length;
+    if(answeredCount===0) return '<div class="live-gauge neutral" id="liveGauge">— %</div>';
+    var livePct = pct(correctCount, answeredCount);
+    return '<div class="live-gauge '+(livePct>=70?"good":"bad")+'" id="liveGauge">'+livePct+'%</div>';
+  }
+
+  function sidebarHtml(){
+    if(!showNav) return "";
+    var btns = questions.map(function(q,i){
+      var cls = "qnav-btn";
+      if(i===idx) cls += " current";
+      var a = answeredMap[i];
+      if(a) cls += a.correct ? " correct" : " incorrect";
+      return '<button class="'+cls+'" data-i="'+i+'">'+(i+1)+'</button>';
+    }).join("");
+    return '<div class="quiz-sidenav">' +
+      '<div class="qnav-title">Questions ('+Object.keys(answeredMap).length+'/'+questions.length+' answered)</div>' +
+      '<div class="qnav-grid">'+btns+'</div>' +
+      '<div class="qnav-legend"><span class="dot correct"></span>Correct<span class="dot incorrect"></span>Wrong<span class="dot"></span>Unanswered</div>' +
+      '<button class="btn btn-primary btn-sm" id="finishNowBtn" style="width:100%;margin-top:12px;">'+ICON.check+' Finish now</button>' +
+    '</div>';
+  }
+
+  function gotoQuestion(i){ idx = i; renderQ(); }
+
   function renderQ(){
     var q = questions[idx];
-    var barPct = Math.round(idx/questions.length*100);
-    container.innerHTML =
-      '<div class="quiz-progress"><div class="bar"><div style="width:'+barPct+'%"></div></div><div class="count">Question '+(idx+1)+' / '+questions.length+'</div>'+timerHtml()+'</div>' +
-      '<div class="q-card">' +
-        '<div class="q-text">'+esc(q.question)+'</div>' +
-        '<div class="q-opts" id="qOpts">' +
-          q.options.map(function(o,i){
-            return '<button class="q-opt" data-i="'+i+'"><span class="letter">'+letters[i]+'</span><span>'+esc(o)+'</span></button>';
-          }).join("") +
+    var isReview = !!answeredMap[idx];
+    var barPct = Math.round(Object.keys(answeredMap).length/questions.length*100);
+    var chapterTagHtml = (showNav && q._chId) ? '<div class="q-chaptertag">Chapter: '+esc(chapterTitle(examKey,q._chId))+'</div>' : "";
+
+    var mainHtml =
+      '<div class="quiz-main">' +
+        '<div class="quiz-progress"><div class="bar"><div style="width:'+barPct+'%"></div></div><div class="count">Question '+(idx+1)+' / '+questions.length+'</div>'+liveGaugeHtml()+timerHtml()+'</div>' +
+        '<div class="q-card">' +
+          '<div class="q-text">'+esc(q.question)+'</div>' +
+          '<div class="q-opts" id="qOpts">' +
+            q.options.map(function(o,i2){
+              var cls = "q-opt";
+              if(isReview){
+                cls += " disabled";
+                if(i2===q.correctIndex) cls += " correct";
+                else if(i2===answeredMap[idx].chosen) cls += " incorrect";
+                else cls += " dim";
+              }
+              return '<button class="'+cls+'" data-i="'+i2+'"><span class="letter">'+letters[i2]+'</span><span>'+esc(o)+'</span></button>';
+            }).join("") +
+          '</div>' +
+          '<div id="explainWrap">'+(isReview ? '<div class="explain-box"><b>'+(answeredMap[idx].correct?"Correct. ":"Not quite. ")+'</b>'+esc(q.explanation||"")+'</div>' : "")+'</div>' +
+          chapterTagHtml +
+          '<div class="q-actions">' +
+            (showNav ? '<button class="btn btn-sm" id="prevBtn" '+(idx===0?"disabled":"")+'>&larr; Prev</button>' : '<span class="kbd-hint" style="font-size:11.5px;color:var(--text-faint);">Keys 1-'+q.options.length+' to answer &middot; Enter for next</span>') +
+            '<button class="btn btn-primary" id="nextBtn" style="display:'+(isReview?"inline-flex":"none")+';">'+(idx===questions.length-1?"See results":"Next question")+' '+ICON.chevron+'</button>' +
+          '</div>' +
         '</div>' +
-        '<div id="explainWrap"></div>' +
-        '<div class="q-actions"><span class="kbd-hint" style="font-size:11.5px;color:var(--text-faint);">Keys 1-'+q.options.length+' to answer &middot; Enter for next</span><button class="btn btn-primary" id="nextBtn" style="display:none;">'+(idx===questions.length-1?"See results":"Next question")+' '+ICON.chevron+'</button></div>' +
       '</div>';
-    if(idx===0) startTimer();
-    answered = false;
+
+    container.innerHTML = showNav ? ('<div class="quiz-layout">'+mainHtml+sidebarHtml()+'</div>') : mainHtml;
+    startTimer();
 
     function selectOption(i){
-      if(answered) return;
-      answered = true;
-      var chosen = i;
+      if(answeredMap[idx]) return;
       var correct = q.correctIndex;
-      Array.prototype.forEach.call(container.querySelectorAll(".q-opt"), function(b2,i2){
-        b2.classList.add("disabled");
-        if(i2===correct) b2.classList.add("correct");
-        else if(i2===chosen) b2.classList.add("incorrect");
-        else b2.classList.add("dim");
-      });
-      var isCorrect = chosen===correct;
+      var isCorrect = i===correct;
+      answeredMap[idx] = { chosen:i, correct:isCorrect };
       if(isCorrect) correctCount++; else wrongOnes.push(q);
       if(q._qid) markWeak(examKey, q._qid, !isCorrect);
       if(opts.isFullExam){
@@ -1292,24 +1344,33 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
         byChapter[chId].total++;
         if(isCorrect) byChapter[chId].correct++;
       }
-      document.getElementById("explainWrap").innerHTML =
-        '<div class="explain-box"><b>'+(isCorrect?"Correct. ":"Not quite. ")+'</b>'+esc(q.explanation||"")+'</div>';
-      document.getElementById("nextBtn").style.display = "inline-flex";
+      renderQ();
     }
 
-    Array.prototype.forEach.call(container.querySelectorAll(".q-opt"), function(btn){
-      btn.onclick = function(){ selectOption(+btn.getAttribute("data-i")); };
-    });
+    if(!isReview){
+      Array.prototype.forEach.call(container.querySelectorAll(".q-opt"), function(btn){
+        btn.onclick = function(){ selectOption(+btn.getAttribute("data-i")); };
+      });
+    }
+    var prevBtn = document.getElementById("prevBtn");
+    if(prevBtn) prevBtn.onclick = function(){ if(idx>0) gotoQuestion(idx-1); };
     document.getElementById("nextBtn").onclick = function(){
       idx++;
       if(idx >= questions.length){ stopActiveTimer(); renderResult(); }
       else renderQ();
     };
+    if(showNav){
+      Array.prototype.forEach.call(container.querySelectorAll(".qnav-btn"), function(btn){
+        btn.onclick = function(){ gotoQuestion(+btn.getAttribute("data-i")); };
+      });
+      var finishBtn = document.getElementById("finishNowBtn");
+      if(finishBtn) finishBtn.onclick = function(){ stopActiveTimer(); renderResult(); };
+    }
 
     window.__cisiQuizKeyHandler = function(e){
       if(e.metaKey||e.ctrlKey||e.altKey) return;
       var key = e.key;
-      if(!answered){
+      if(!isReview){
         var n = parseInt(key,10);
         if(n>=1 && n<=q.options.length){ e.preventDefault(); selectOption(n-1); return; }
         var letterIdx = letters.indexOf((key||"").toUpperCase());
@@ -1326,13 +1387,26 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
     stopActiveTimer(); stopActiveQuizKeys();
     var answeredCount = correctCount + wrongOnes.length;
     var p = pct(correctCount, questions.length);
-    var breakdownHtml = "";
+    var breakdownHtml = "", improveHtml = "";
     if(opts.isFullExam){
-      breakdownHtml = '<div class="breakdown">' + Object.keys(byChapter).map(function(chId){
-        var ch = DATA[examKey].chapters.find(function(c){return c.id===chId;});
+      var chIds = Object.keys(byChapter);
+      breakdownHtml = '<div class="breakdown">' + chIds.map(function(chId){
         var b = byChapter[chId];
-        return '<div class="breakdown-row"><span>'+esc(ch?ch.title:chId)+'</span><span>'+b.correct+'/'+b.total+' ('+pct(b.correct,b.total)+'%)</span></div>';
+        var chPct = pct(b.correct,b.total);
+        return '<div class="breakdown-row"><span>'+esc(chapterTitle(examKey,chId))+'</span><span class="'+(chPct>=70?"good":"bad")+'-text">'+b.correct+'/'+b.total+' ('+chPct+'%)</span></div>';
       }).join("") + '</div>';
+
+      var weak = chIds.map(function(chId){ return { chId:chId, p:pct(byChapter[chId].correct,byChapter[chId].total) }; })
+        .filter(function(w){ return w.p < 70; })
+        .sort(function(a,b){ return a.p-b.p; });
+      if(weak.length>0){
+        improveHtml = '<div class="improve-box">' +
+          '<div class="improve-title">Points à retravailler</div>' +
+          weak.map(function(w){
+            return '<button class="improve-row" data-ch="'+esc(w.chId)+'">'+esc(chapterTitle(examKey,w.chId))+' — '+w.p+'% <span>'+ICON.chevron+'</span></button>';
+          }).join("") +
+        '</div>';
+      }
     }
     var timeoutNote = timedOut ? '<div style="color:var(--red);font-size:12.5px;margin-top:8px;">&#9202; Time\'s up — '+(questions.length-answeredCount)+' question(s) left unanswered, counted as incorrect.</div>' : "";
     container.innerHTML =
@@ -1342,6 +1416,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
         '<div style="color:var(--text-faint);font-size:13.5px;">'+correctCount+' correct out of '+questions.length+' — '+esc(label)+'</div>' +
         timeoutNote +
         breakdownHtml +
+        improveHtml +
         '<div class="result-actions">' +
           (wrongOnes.length>0 ? '<button class="btn btn-primary" id="mistakesBtn">'+ICON.target+' Redo '+wrongOnes.length+' mistake'+(wrongOnes.length>1?'s':'')+' only</button>' : '') +
           '<button class="btn" id="retryBtn">'+ICON.refresh+' Try again</button>' +
@@ -1350,7 +1425,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
       '</div>';
     onFinish(p, byChapter);
     document.getElementById("retryBtn").onclick = function(){
-      idx=0; correctCount=0; byChapter={}; wrongOnes=[]; timedOut=false; timeLeft = opts.timerSeconds || null;
+      idx=0; correctCount=0; byChapter={}; wrongOnes=[]; timedOut=false; timeLeft = opts.timerSeconds || null; timerStarted=false; answeredMap={};
       questions = shuffle(questions); renderQ();
     };
     var mb = document.getElementById("mistakesBtn");
@@ -1359,6 +1434,9 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
       runQuizUI(container, examKey, label+" — mistakes only", mistakes, function(){}, { isFullExam:false });
     };
     document.getElementById("backBtn").onclick = function(){ history.back(); };
+    Array.prototype.forEach.call(container.querySelectorAll(".improve-row"), function(btn){
+      btn.onclick = function(){ navigate([examKey, btn.getAttribute("data-ch"), "summary"]); };
+    });
   }
 
   renderQ();
