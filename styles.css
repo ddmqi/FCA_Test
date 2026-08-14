@@ -617,6 +617,27 @@ button{font-family:inherit;}
 .mock-card .btn{align-self:flex-start; pointer-events:none;}
 .mock-brief{font-size:13.5px; color:var(--text-dim); font-weight:600;}
 
+.mock-history{margin-top:28px;}
+.mock-history-title{font-size:12px; font-weight:700; color:var(--text-faint); text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px;}
+.mock-attempt-row{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; text-align:left;
+  background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px;
+  margin-bottom:8px; cursor:pointer; transition:.15s;
+}
+.mock-attempt-row:hover{border-color:var(--border-strong); transform:translateX(2px);}
+.mock-attempt-date{font-size:12.5px; color:var(--text-faint); flex:1;}
+.mock-attempt-score{font-size:13px; font-weight:800;}
+.mock-attempt-arrow svg{width:14px; height:14px; color:var(--text-faint);}
+
+.review-list{display:flex; flex-direction:column; gap:14px; margin-top:20px;}
+.review-card{background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 22px;}
+.review-card-head{display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
+.review-qnum{font-size:12px; font-weight:800; color:var(--text-faint);}
+.review-chip{font-size:10.5px; font-weight:800; padding:3px 9px; border-radius:100px; text-transform:uppercase; letter-spacing:.3px;}
+.review-chip.good{background:var(--green-soft); color:var(--green);}
+.review-chip.bad{background:var(--red-soft); color:var(--red);}
+.review-chip.skipped{background:var(--bg-inset); color:var(--text-faint);}
+
 /* =========================================================
    Responsive: desktop / tablet / mobile
    ========================================================= */

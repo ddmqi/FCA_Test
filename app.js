@@ -77,6 +77,23 @@ function recordQuizResult(examKey, chId, pct){
   if(c.bestScore===null || pct > c.bestScore) c.bestScore = pct;
   saveStore(store);
 }
+function ensureMockAttempts(examKey, mockId){
+  var ex = ensureExam(examKey);
+  if(!ex.mockAttempts) ex.mockAttempts = {};
+  if(!ex.mockAttempts[mockId]) ex.mockAttempts[mockId] = [];
+  return ex.mockAttempts[mockId];
+}
+function recordMockAttempt(examKey, mockId, attempt){
+  var list = ensureMockAttempts(examKey, mockId);
+  list.unshift(attempt); // most recent first
+  if(list.length > 20) list.length = 20; // cap history so storage doesn't grow unbounded
+  saveStore(store);
+  return attempt;
+}
+function getMockAttempt(examKey, mockId, attemptId){
+  var list = ensureMockAttempts(examKey, mockId);
+  return list.find(function(a){ return a.id===attemptId; }) || null;
+}
 function cardState(examKey, cardId){
   var ex = ensureExam(examKey);
   return ex.cards[cardId] || null;
@@ -288,7 +305,10 @@ function render(){
   if(second === "_cisiquiz"){ renderCisiFullQuiz(examKey); return; }
   if(second === "_mocks"){
     var mockId = parts[2];
-    if(mockId){ renderMockExamRunner(examKey, mockId); } else { renderMockExamsList(examKey); }
+    var attemptId = parts[3];
+    if(mockId && attemptId){ renderMockAttemptReview(examKey, mockId, attemptId); }
+    else if(mockId){ renderMockExamRunner(examKey, mockId); }
+    else { renderMockExamsList(examKey); }
     return;
   }
   if(second === "_cards"){ renderAllFlashcards(examKey); return; }
@@ -1152,9 +1172,19 @@ function renderCisiFullQuiz(examKey){
 
 /* ---------- Mock exams: full-length past papers, sat as a whole (not mixed with other pools) ---------- */
 function mockBestScore(examKey, mockId){
-  var st = ensureChapter(examKey, "mock_"+mockId);
-  return st.bestScore;
+  var list = ensureMockAttempts(examKey, mockId);
+  if(list.length===0) return null;
+  var best = list[0].pct;
+  list.forEach(function(a){ if(a.pct>best) best=a.pct; });
+  return best;
 }
+function fmtAttemptDate(iso){
+  try{
+    var d = new Date(iso);
+    return d.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) + " · " + d.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
+  }catch(e){ return ""; }
+}
+
 function renderMockExamsList(examKey){
   renderSidebar(examKey, null);
   var exam = DATA[examKey];
@@ -1162,12 +1192,13 @@ function renderMockExamsList(examKey){
 
   var cardsHtml = mocks.map(function(m){
     var best = mockBestScore(examKey, m.id);
+    var n = ensureMockAttempts(examKey, m.id).length;
     return '<div class="mock-card" data-mock="'+esc(m.id)+'">' +
       '<div class="mock-card-top"><span class="mock-title">'+esc(m.title)+'</span>' +
         (best!==null ? '<span class="mock-best">Best: '+best+'%</span>' : '') +
       '</div>' +
-      '<div class="mock-meta">'+m.mcqs.length+' questions · full-length paper</div>' +
-      '<button class="btn btn-primary btn-sm">'+ICON.quiz+' Start</button>' +
+      '<div class="mock-meta">'+m.mcqs.length+' questions · full-length paper'+(n>0?' · '+n+' attempt'+(n>1?'s':'')+' so far':'')+'</div>' +
+      '<button class="btn btn-primary btn-sm">'+ICON.quiz+' '+(n>0?"View / retake":"Start")+'</button>' +
     '</div>';
   }).join("");
 
@@ -1194,28 +1225,115 @@ function renderMockExamRunner(examKey, mockId){
 
   var seconds = mock.mcqs.length * EXAM_SECONDS_PER_Q;
   var minutes = Math.round(seconds/60);
+  var attempts = ensureMockAttempts(examKey, mock.id);
 
-  app.innerHTML = '<div class="quiz-shell">' +
+  var historyHtml = "";
+  if(attempts.length>0){
+    historyHtml =
+      '<div class="mock-history">' +
+        '<div class="mock-history-title">Your past attempts (nothing is lost — every attempt is kept)</div>' +
+        attempts.map(function(a){
+          return '<button class="mock-attempt-row" data-attempt="'+esc(a.id)+'">' +
+            '<span class="mock-attempt-date">'+esc(fmtAttemptDate(a.date))+'</span>' +
+            '<span class="mock-attempt-score '+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
+            '<span class="mock-attempt-arrow">'+ICON.chevron+'</span>' +
+          '</button>';
+        }).join("") +
+      '</div>';
+  }
+
+  app.innerHTML = '<div class="main-narrow" id="mockShell">' +
     '<div class="chapter-head">' + backRow("Mock exams") +
     '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="mocks">Mock exams</a> / '+esc(mock.title)+'</div>' +
     '<h1>'+esc(mock.title)+'</h1></div>' +
     '<div class="quiz-config">' +
       '<div class="mock-brief">'+mock.mcqs.length+' questions &middot; '+minutes+' minutes &middot; timed, exam conditions</div>' +
-      '<button class="btn btn-primary" id="startMock" style="align-self:flex-start;">'+ICON.quiz+' Start</button>' +
-    '</div></div>';
+      '<button class="btn btn-primary" id="startMock" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
+    '</div>' +
+    historyHtml +
+  '</div>';
 
   wireBack(app, [examKey, "_mocks"]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   app.querySelector('[data-nav="mocks"]').onclick = function(){ navigate([examKey, "_mocks"]); };
+  Array.prototype.forEach.call(app.querySelectorAll(".mock-attempt-row"), function(el){
+    el.onclick = function(){ navigate([examKey, "_mocks", mock.id, el.getAttribute("data-attempt")]); };
+  });
 
   document.getElementById("startMock").onclick = function(){
-    var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title }); });
-    var container = document.querySelector(".quiz-shell");
-    runQuizUI(container, examKey, mock.title, tagged, function(pctScore){
-      recordQuizResult(examKey, "mock_"+mock.id, pctScore);
+    var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title, _qIndex:i }); });
+    var container = document.getElementById("mockShell");
+    runQuizUI(container, examKey, mock.title, tagged, function(pctScore, byChapter, answeredMap){
+      var answers = [];
+      Object.keys(answeredMap).forEach(function(k){
+        answers.push({ i:+k, chosen:answeredMap[k].chosen, correct:answeredMap[k].correct });
+      });
+      answers.sort(function(a,b){ return a.i-b.i; });
+      var correctN = answers.filter(function(a){ return a.correct; }).length;
+      recordMockAttempt(examKey, mock.id, {
+        id: String(Date.now()),
+        date: new Date().toISOString(),
+        pct: pctScore,
+        correct: correctN,
+        total: mock.mcqs.length,
+        byChapter: byChapter,
+        answers: answers
+      });
     }, { isFullExam:true, timerSeconds: seconds });
   };
+}
+
+function renderMockAttemptReview(examKey, mockId, attemptId){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var mock = (exam.mockExams||[]).find(function(m){ return m.id===mockId; });
+  var attempt = mock ? getMockAttempt(examKey, mockId, attemptId) : null;
+  if(!mock || !attempt){ renderMockExamRunner(examKey, mockId); return; }
+
+  var answersByIndex = {};
+  attempt.answers.forEach(function(a){ answersByIndex[a.i] = a; });
+
+  var breakdownHtml = '<div class="breakdown">' + Object.keys(attempt.byChapter).map(function(chId){
+    var b = attempt.byChapter[chId];
+    var chPct = pct(b.correct,b.total);
+    return '<div class="breakdown-row"><span>'+esc(chapterTitle(examKey,chId))+'</span><span class="'+(chPct>=70?"good":"bad")+'-text">'+b.correct+'/'+b.total+' ('+chPct+'%)</span></div>';
+  }).join("") + '</div>';
+
+  var letters = ["A","B","C","D","E","F"];
+  var questionsHtml = mock.mcqs.map(function(q, i){
+    var a = answersByIndex[i];
+    var optsHtml = q.options.map(function(o,oi){
+      var cls = "q-opt disabled";
+      if(oi===q.correctIndex) cls += " correct";
+      else if(a && oi===a.chosen) cls += " incorrect";
+      else cls += " dim";
+      return '<button class="'+cls+'" disabled><span class="letter">'+letters[oi]+'</span><span>'+esc(o)+'</span></button>';
+    }).join("");
+    var statusChip = !a ? '<span class="review-chip skipped">Not answered</span>' : a.correct ? '<span class="review-chip good">Correct</span>' : '<span class="review-chip bad">Incorrect</span>';
+    return '<div class="review-card">' +
+      '<div class="review-card-head"><span class="review-qnum">Q'+(i+1)+'</span>'+statusChip+(q.chId?'<span class="q-chaptertag" style="margin:0;">'+esc(chapterTitle(examKey,q.chId))+'</span>':'')+'</div>' +
+      '<div class="q-text">'+esc(q.question)+'</div>' +
+      '<div class="q-opts">'+optsHtml+'</div>' +
+      '<div class="explain-box"><b>'+(a ? (a.correct?"Correct. ":"Not quite. ") : "Skipped. ")+'</b>'+esc(q.explanation||"")+'</div>' +
+    '</div>';
+  }).join("");
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(mock.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="mocks">Mock exams</a> / <a data-nav="mock">'+esc(mock.title)+'</a> / Review</div>' +
+    '<h1>'+esc(mock.title)+' — '+esc(fmtAttemptDate(attempt.date))+'</h1>' +
+    '<div class="fmt">'+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%). Scroll down to review every question.</div>' +
+    '</div>' +
+    breakdownHtml +
+    '<div class="review-list">'+questionsHtml+'</div>' +
+  '</div>';
+
+  wireBack(app, [examKey, "_mocks", mockId]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+  app.querySelector('[data-nav="mocks"]').onclick = function(){ navigate([examKey, "_mocks"]); };
+  app.querySelector('[data-nav="mock"]').onclick = function(){ navigate([examKey, "_mocks", mockId]); };
 }
 
 /* ---------- generic quiz runner ---------- */
@@ -1423,7 +1541,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
           '<button class="btn" id="backBtn">'+ICON.home+' Back</button>' +
         '</div>' +
       '</div>';
-    onFinish(p, byChapter);
+    onFinish(p, byChapter, answeredMap);
     document.getElementById("retryBtn").onclick = function(){
       idx=0; correctCount=0; byChapter={}; wrongOnes=[]; timedOut=false; timeLeft = opts.timerSeconds || null; timerStarted=false; answeredMap={};
       questions = shuffle(questions); renderQ();
