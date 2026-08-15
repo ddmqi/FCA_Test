@@ -355,6 +355,8 @@ function render(){
   if(second === "_export"){ renderExportPage(examKey); return; }
   if(second === "_glossary"){ renderGlossary(examKey); return; }
   if(second === "_glossaryflashcards"){ renderGlossaryFlashcards(examKey); return; }
+  if(second === "_regulators"){ renderRegulators(examKey); return; }
+  if(second === "_clientrules"){ renderClientRules(examKey); return; }
 
   var chId = second;
   var chapter = DATA[examKey].chapters.find(function(c){ return c.id===chId; });
@@ -518,6 +520,8 @@ function renderExamOverview(examKey){
       '<div class="overview-actions">' +
         (nWeak>0 ? '<button class="btn" id="weakBtn" style="border-color:var(--red);color:var(--red);">'+ICON.target+' Weak spots ('+nWeak+')</button>' : '') +
         '<button class="btn" id="glossaryBtn">'+ICON.glossary+' Glossary</button>' +
+        '<button class="btn" id="regulatorsBtn">'+ICON.map+' Regulatory bodies</button>' +
+        '<button class="btn" id="clientRulesBtn">'+ICON.target+' Who gets what</button>' +
         '<button class="btn" id="exportBtn">'+ICON.pdf+' Export PDF</button>' +
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
         (mockCount>0 ? '<button class="btn btn-teal" id="mocksBtn">'+ICON.quiz+' Mock exams ('+mockCount+')</button>' : '') +
@@ -542,6 +546,10 @@ function renderExamOverview(examKey){
   document.getElementById("fullQuizBtn").onclick = function(){ navigate([examKey, "_quiz"]); };
   document.getElementById("allCardsBtn").onclick = function(){ navigate([examKey, "_cards"]); };
   document.getElementById("glossaryBtn").onclick = function(){ navigate([examKey, "_glossary"]); };
+  var regBtn = document.getElementById("regulatorsBtn");
+  if(regBtn) regBtn.onclick = function(){ navigate([examKey, "_regulators"]); };
+  var crBtn = document.getElementById("clientRulesBtn");
+  if(crBtn) crBtn.onclick = function(){ navigate([examKey, "_clientrules"]); };
   var mb = document.getElementById("mocksBtn");
   if(mb) mb.onclick = function(){ navigate([examKey, "_mocks"]); };
   var cb = document.getElementById("cisiExamBtn");
@@ -1856,6 +1864,150 @@ function renderGlossaryFlashcards(examKey){
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   app.querySelector('[data-nav="glossary"]').onclick = function(){ navigate([examKey, "_glossary"]); };
   runFlashcardUI(document.getElementById("fcRoot"), examKey, exam.title+" — glossary", cards);
+}
+
+/* ---------- regulatory bodies directory: scope, powers, traps, and how they link to each other ---------- */
+function renderRegulators(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var regs = exam.regulators || [];
+  if(regs.length===0){
+    app.innerHTML = '<div class="main-narrow"><div class="chapter-head">' + backRow(exam.title) +
+      '<h1>Regulatory bodies</h1></div><div class="empty-state">Not available yet for '+esc(exam.title)+'.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+  var byId = {}; regs.forEach(function(r){ byId[r.id]=r; });
+
+  function regCardHtml(r){
+    var powers = (r.powers||[]).map(function(p){ return '<li>'+esc(p)+'</li>'; }).join("");
+    var traps = (r.traps||[]).map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("");
+    var related = (r.related||[]).map(function(rid){
+      var rr = byId[rid];
+      return rr ? '<button class="reg-chip" data-goto="'+esc(rid)+'">'+esc(rr.name)+'</button>' : "";
+    }).join("");
+    return '<div class="reg-card" id="reg-'+esc(r.id)+'" data-search="'+esc((r.name+" "+r.scope+" "+(r.traps||[]).join(" ")).toLowerCase())+'">' +
+      '<div class="reg-card-head"><span class="reg-name">'+esc(r.name)+'</span><span class="reg-cat">'+esc(r.category)+'</span></div>' +
+      '<div class="reg-scope">'+esc(r.scope)+'</div>' +
+      (r.accountability ? '<div class="reg-accountability"><b>Accountable to:</b> '+esc(r.accountability)+'</div>' : "") +
+      (powers ? '<div class="reg-section-label">Key powers</div><ul class="reg-list">'+powers+'</ul>' : "") +
+      (traps ? '<div class="reg-section-label trap">'+ICON.target+' Watch out for</div><ul class="reg-list trap-list">'+traps+'</ul>' : "") +
+      (related ? '<div class="reg-section-label">Linked to</div><div class="reg-chips">'+related+'</div>' : "") +
+    '</div>';
+  }
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Regulatory bodies</div>' +
+    '<h1>Regulatory bodies</h1><div class="fmt">'+regs.length+' authorities and roles across the whole subject — what each one does, who it answers to, and the traps examiners love. Click a linked body to jump straight to it.</div>' +
+    '</div>' +
+    '<div class="gloss-toolbar"><div class="search-box gloss-search">'+ICON.search+'<input type="text" id="regSearch" placeholder="Search authorities…" autocomplete="off"/></div></div>' +
+    '<div class="reg-grid" id="regGrid">' + regs.map(regCardHtml).join("") + '</div>' +
+    '<div class="empty-state" id="regEmpty" style="display:none;">No authorities match your search.</div>' +
+  '</div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var input = document.getElementById("regSearch");
+  var cardEls = Array.prototype.slice.call(document.querySelectorAll(".reg-card"));
+  var emptyMsg = document.getElementById("regEmpty");
+  input.oninput = function(){
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    cardEls.forEach(function(c){
+      var match = !q || c.getAttribute("data-search").indexOf(q)!==-1;
+      c.style.display = match ? "" : "none";
+      if(match) shown++;
+    });
+    emptyMsg.style.display = shown===0 ? "" : "none";
+  };
+  Array.prototype.forEach.call(document.querySelectorAll(".reg-chip"), function(btn){
+    btn.onclick = function(){
+      var target = document.getElementById("reg-"+btn.getAttribute("data-goto"));
+      if(!target) return;
+      input.value = ""; input.oninput();
+      target.scrollIntoView({behavior:"smooth", block:"center"});
+      target.classList.add("reg-flash");
+      setTimeout(function(){ target.classList.remove("reg-flash"); }, 1400);
+    };
+  });
+}
+
+/* ---------- client rules directory: who gets which protection, who can request what, by client type ---------- */
+function renderClientRules(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var rules = exam.clientRules || [];
+  if(rules.length===0){
+    app.innerHTML = '<div class="main-narrow"><div class="chapter-head">' + backRow(exam.title) +
+      '<h1>Who gets what</h1></div><div class="empty-state">Not available yet for '+esc(exam.title)+'.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+  var typeLabel = { retail:"Retail", professional:"Professional", ecp:"Eligible counterparty" };
+
+  function ruleCardHtml(r){
+    var badges = (r.appliesTo||[]).map(function(t){ return '<span class="ct-badge ct-'+t+'">'+typeLabel[t]+'</span>'; }).join("");
+    var traps = (r.traps||[]).map(function(t){ return '<li>'+esc(t)+'</li>'; }).join("");
+    return '<div class="reg-card ct-card" data-types="'+(r.appliesTo||[]).join(",")+'" data-search="'+esc((r.name+" "+r.detail+" "+(r.traps||[]).join(" ")).toLowerCase())+'">' +
+      '<div class="reg-card-head"><span class="reg-name">'+esc(r.name)+'</span></div>' +
+      '<div class="ct-badges">'+badges+'</div>' +
+      '<div class="reg-scope">'+esc(r.detail)+'</div>' +
+      (r.depth ? '<div class="reg-accountability">'+esc(r.depth)+'</div>' : "") +
+      (traps ? '<div class="reg-section-label trap">'+ICON.target+' Watch out for</div><ul class="reg-list trap-list">'+traps+'</ul>' : "") +
+    '</div>';
+  }
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Who gets what</div>' +
+    '<h1>Who gets what</h1><div class="fmt">'+rules.length+' protections and rights, organised by client type — retail, professional and eligible counterparty — plus who can request re-categorisation and to what.</div>' +
+    '</div>' +
+    '<div class="gloss-toolbar">' +
+      '<div class="search-box gloss-search">'+ICON.search+'<input type="text" id="ctSearch" placeholder="Search rules…" autocomplete="off"/></div>' +
+      '<div class="ct-filters" id="ctFilters">' +
+        '<button class="chip ct-filter active" data-type="all">All</button>' +
+        '<button class="chip ct-filter" data-type="retail">Retail</button>' +
+        '<button class="chip ct-filter" data-type="professional">Professional</button>' +
+        '<button class="chip ct-filter" data-type="ecp">Eligible counterparty</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="reg-grid" id="ctGrid">' + rules.map(ruleCardHtml).join("") + '</div>' +
+    '<div class="empty-state" id="ctEmpty" style="display:none;">No rules match.</div>' +
+  '</div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var input = document.getElementById("ctSearch");
+  var cardEls = Array.prototype.slice.call(document.querySelectorAll(".ct-card"));
+  var emptyMsg = document.getElementById("ctEmpty");
+  var activeType = "all";
+
+  function applyFilters(){
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    cardEls.forEach(function(c){
+      var typeMatch = activeType==="all" || (c.getAttribute("data-types")||"").split(",").indexOf(activeType)!==-1;
+      var textMatch = !q || c.getAttribute("data-search").indexOf(q)!==-1;
+      var match = typeMatch && textMatch;
+      c.style.display = match ? "" : "none";
+      if(match) shown++;
+    });
+    emptyMsg.style.display = shown===0 ? "" : "none";
+  }
+  input.oninput = applyFilters;
+  Array.prototype.forEach.call(document.querySelectorAll(".ct-filter"), function(btn){
+    btn.onclick = function(){
+      Array.prototype.forEach.call(document.querySelectorAll(".ct-filter"), function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      activeType = btn.getAttribute("data-type");
+      applyFilters();
+    };
+  });
 }
 
 function runFlashcardUI(container, examKey, label, cards){
