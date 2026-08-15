@@ -123,10 +123,14 @@ function cardState(examKey, cardId){
   var ex = ensureExam(examKey);
   return ex.cards[cardId] || null;
 }
-function setCardState(examKey, cardId, known){
+function setCardLevel(examKey, cardId, level){
   var ex = ensureExam(examKey);
-  ex.cards[cardId] = { known: known, ts: Date.now() };
+  ex.cards[cardId] = { level: level, ts: Date.now() };
   saveStore(store);
+}
+function cardLevel(examKey, cardId){
+  var s = cardState(examKey, cardId);
+  return s ? s.level : 0; // 0 = unseen, 1 = bad, 2 = medium, 3 = good
 }
 
 /* ---------- theme ---------- */
@@ -350,6 +354,7 @@ function render(){
   if(second === "_weak"){ renderWeakSpots(examKey); return; }
   if(second === "_export"){ renderExportPage(examKey); return; }
   if(second === "_glossary"){ renderGlossary(examKey); return; }
+  if(second === "_glossaryflashcards"){ renderGlossaryFlashcards(examKey); return; }
 
   var chId = second;
   var chapter = DATA[examKey].chapters.find(function(c){ return c.id===chId; });
@@ -581,7 +586,6 @@ function renderChapter(examKey, chapter, tab){
     ["summary","Summary", ICON.book],
     ["detail","Detailed notes", ICON.book],
     ["mindmap","Mind map", ICON.map],
-    ["quiz","Quiz ("+(chapter.mcqs?chapter.mcqs.length:0)+")", ICON.quiz],
     ["flashcards","Flashcards ("+(chapter.flashcards?chapter.flashcards.length:0)+")", ICON.cards]
   ];
   if(chapter.cisiMcqs && chapter.cisiMcqs.length){
@@ -1108,6 +1112,7 @@ function renderGlossary(examKey){
     '</div>' +
     '<div class="gloss-toolbar">' +
       '<div class="search-box gloss-search">'+ICON.search+'<input type="text" id="glossSearch" placeholder="Search terms…" autocomplete="off"/></div>' +
+      '<button class="btn btn-primary btn-sm" id="glossFcBtn">'+ICON.cards+' Flashcard mode</button>' +
     '</div>' +
     '<div class="gloss-list" id="glossList">' + terms.map(cardHtml).join("") + '</div>' +
     '<div class="empty-state" id="glossEmpty" style="display:none;">No terms match your search.</div>' +
@@ -1118,6 +1123,8 @@ function renderGlossary(examKey){
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
 
   var input = document.getElementById("glossSearch");
+  var glossFcBtn = document.getElementById("glossFcBtn");
+  if(glossFcBtn) glossFcBtn.onclick = function(){ navigate([examKey, "_glossaryflashcards"]); };
   var cards = Array.prototype.slice.call(document.querySelectorAll(".gloss-card"));
   var emptyMsg = document.getElementById("glossEmpty");
   input.oninput = function(){
@@ -1820,7 +1827,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
   renderQ();
 }
 
-/* ---------- flashcards (chapter) ---------- */
+/* ---------- flashcards (chapter / all / glossary) — 3-tier priority queue: bad/medium cards resurface more often ---------- */
 function renderFlashcardsTab(content, examKey, chapter){
   var cards = (chapter.flashcards||[]).map(function(fc, i){ return Object.assign({}, fc, { _id: examKey+":"+chapter.id+":"+i }); });
   runFlashcardUI(content, examKey, chapter.title, cards);
@@ -1832,64 +1839,111 @@ function renderAllFlashcards(examKey){
   exam.chapters.forEach(function(ch){
     (ch.flashcards||[]).forEach(function(fc,i){ cards.push(Object.assign({}, fc, { _id: examKey+":"+ch.id+":"+i, _chapter: ch.title })); });
   });
-  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1></div><div id="fcRoot"></div>';
+  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1><div class="fmt">Every flashcard across every chapter, in one deck. Cards you rate Bad or Medium come back around more often.</div></div><div id="fcRoot"></div>';
   wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   runFlashcardUI(document.getElementById("fcRoot"), examKey, exam.title+" — all chapters", cards);
 }
+function renderGlossaryFlashcards(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var terms = exam.glossaryFlashcards || [];
+  var cards = terms.map(function(fc,i){ return Object.assign({}, fc, { _id: examKey+":glossary:"+i }); });
+  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="glossary">Glossary</a> / Flashcards</div><h1>Glossary flashcards</h1><div class="fmt">'+cards.length+' key terms — see the term, try to recall the definition before flipping.</div></div><div id="fcRoot"></div>';
+  wireBack(app, [examKey, "_glossary"]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+  app.querySelector('[data-nav="glossary"]').onclick = function(){ navigate([examKey, "_glossary"]); };
+  runFlashcardUI(document.getElementById("fcRoot"), examKey, exam.title+" — glossary", cards);
+}
 
 function runFlashcardUI(container, examKey, label, cards){
-  var deck = shuffle(cards);
-  var pos = 0;
-  var knownCount = 0;
+  function priorityOf(c){ var lvl = cardLevel(examKey, c._id); return lvl===1?0 : lvl===0?1 : lvl===2?2 : 3; }
+  function buildQueue(list){
+    var groups = [[],[],[],[]];
+    shuffle(list).forEach(function(c){ groups[priorityOf(c)].push(c); });
+    return groups[0].concat(groups[1]).concat(groups[2]).concat(groups[3]);
+  }
+  var totalCards = cards.length;
+  var queue = buildQueue(cards);
+  var repeatCounts = {};
+  var sessionSeen = {};
+  var sessionRatings = { good:0, medium:0, bad:0 };
 
-  function counts(){
-    var known=0;
-    deck.forEach(function(c){ var s=cardState(examKey,c._id); if(s&&s.known) known++; });
-    return known;
+  function levelLabel(l){ return l===1?"Bad":l===2?"Medium":l===3?"Good":"New"; }
+
+  function statsHtml(){
+    var seenCount = Object.keys(sessionSeen).length;
+    return '<div class="fc-stats">'+esc(label)+' &middot; <b>'+seenCount+'</b>/'+totalCards+' seen this session'+
+      (sessionRatings.good+sessionRatings.medium+sessionRatings.bad>0 ?
+        ' &middot; <span class="fc-tag good">'+sessionRatings.good+' good</span> <span class="fc-tag medium">'+sessionRatings.medium+' medium</span> <span class="fc-tag bad">'+sessionRatings.bad+' bad</span>' : '') +
+    '</div>';
   }
 
   function draw(){
-    if(deck.length===0){
+    if(totalCards===0){
       container.innerHTML = '<div class="fc-toolbar"><div></div></div><div class="fc-empty">No flashcards here.</div>';
       return;
     }
-    if(pos>=deck.length) pos=0;
-    var c = deck[pos];
-    var known = counts();
+    if(queue.length===0){
+      container.innerHTML =
+        '<div class="fc-toolbar">'+statsHtml()+
+          '<div style="display:flex;gap:8px;"><button class="btn btn-sm" id="restartBtn">'+ICON.refresh+' Study again</button></div>' +
+        '</div>' +
+        '<div class="fc-stage"><div class="fc-done">'+ICON.check+'<h2 style="margin:14px 0 6px;">Deck complete</h2><div style="color:var(--text-faint);font-size:13.5px;max-width:380px;text-align:center;">You\'ve been through all '+totalCards+' cards. Anything rated Bad or Medium will come up first next time you open this deck.</div></div></div>';
+      document.getElementById("restartBtn").onclick = function(){
+        queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0}; draw();
+      };
+      return;
+    }
+    var c = queue[0];
+    sessionSeen[c._id] = true;
+    var curLevel = cardLevel(examKey, c._id);
     container.innerHTML =
-      '<div class="fc-toolbar">' +
-        '<div class="fc-stats">'+esc(label)+' &middot; <b>'+known+'</b>/'+deck.length+' marked known</div>' +
+      '<div class="fc-toolbar">' + statsHtml() +
         '<div style="display:flex;gap:8px;">' +
-          '<button class="btn btn-sm" id="shuffleBtn">'+ICON.shuffle+' Shuffle</button>' +
+          '<button class="btn btn-sm" id="shuffleBtn">'+ICON.shuffle+' Shuffle rest</button>' +
           '<button class="btn btn-sm" id="resetBtn">'+ICON.refresh+' Reset progress</button>' +
         '</div>' +
       '</div>' +
       '<div class="fc-stage">' +
-        '<div class="fc-count">Card '+(pos+1)+' / '+deck.length+(c._chapter?' &middot; '+esc(c._chapter):'')+'</div>' +
+        '<div class="fc-count">'+queue.length+' card'+(queue.length>1?"s":"")+' left in this session'+(c._chapter?' &middot; '+esc(c._chapter):'')+(curLevel?' &middot; last rated: '+levelLabel(curLevel):'')+'</div>' +
         '<div class="flashcard" id="fcCard"><div class="flashcard-inner">' +
-          '<div class="fc-face fc-front"><span class="fc-kicker">Term</span><div class="fc-txt">'+esc(c.front)+'</div><span class="fc-hint">Click to flip</span></div>' +
+          '<div class="fc-face fc-front"><span class="fc-kicker">Term / prompt</span><div class="fc-txt">'+esc(c.front)+'</div><span class="fc-hint">Click to flip</span></div>' +
           '<div class="fc-face fc-back"><span class="fc-kicker">Answer</span><div class="fc-txt">'+esc(c.back)+'</div></div>' +
         '</div></div>' +
-        '<div class="fc-controls">' +
-          '<button class="btn fc-review" id="reviewBtn">Review again</button>' +
-          '<button class="btn" id="prevBtn">&larr; Prev</button>' +
-          '<button class="btn" id="nextBtn">Next &rarr;</button>' +
-          '<button class="btn fc-know" id="knowBtn">Know it &check;</button>' +
+        '<div class="fc-controls fc-controls-3">' +
+          '<button class="btn fc-bad" id="badBtn">'+ICON.close+' Bad</button>' +
+          '<button class="btn fc-medium" id="mediumBtn">Medium</button>' +
+          '<button class="btn fc-good" id="goodBtn">'+ICON.check+' Good</button>' +
         '</div>' +
       '</div>';
 
     var cardEl = document.getElementById("fcCard");
     cardEl.onclick = function(){ cardEl.classList.toggle("flipped"); };
-    document.getElementById("nextBtn").onclick = function(e){ e.stopPropagation(); pos=(pos+1)%deck.length; draw(); };
-    document.getElementById("prevBtn").onclick = function(e){ e.stopPropagation(); pos=(pos-1+deck.length)%deck.length; draw(); };
-    document.getElementById("knowBtn").onclick = function(e){ e.stopPropagation(); setCardState(examKey,c._id,true); pos=(pos+1)%deck.length; draw(); };
-    document.getElementById("reviewBtn").onclick = function(e){ e.stopPropagation(); setCardState(examKey,c._id,false); pos=(pos+1)%deck.length; draw(); };
-    document.getElementById("shuffleBtn").onclick = function(){ deck = shuffle(deck); pos=0; draw(); };
+
+    function rate(level, sessionKey){
+      setCardLevel(examKey, c._id, level);
+      sessionRatings[sessionKey]++;
+      queue.shift();
+      var reps = repeatCounts[c._id] || 0;
+      if(level<3 && reps<2){
+        repeatCounts[c._id] = reps+1;
+        var gap = level===1 ? 3 : 7;
+        queue.splice(Math.min(queue.length, gap), 0, c);
+      }
+      draw();
+    }
+    document.getElementById("badBtn").onclick = function(e){ e.stopPropagation(); rate(1, "bad"); };
+    document.getElementById("mediumBtn").onclick = function(e){ e.stopPropagation(); rate(2, "medium"); };
+    document.getElementById("goodBtn").onclick = function(e){ e.stopPropagation(); rate(3, "good"); };
+    document.getElementById("shuffleBtn").onclick = function(){ var rest = queue.slice(1); queue = [queue[0]].concat(shuffle(rest)); draw(); };
     document.getElementById("resetBtn").onclick = function(){
-      deck.forEach(function(c2){ var ex=ensureExam(examKey); delete ex.cards[c2._id]; });
-      saveStore(store); draw();
+      cards.forEach(function(c2){ var ex=ensureExam(examKey); delete ex.cards[c2._id]; });
+      saveStore(store);
+      queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0};
+      draw();
     };
   }
   draw();
