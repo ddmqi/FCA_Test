@@ -94,6 +94,31 @@ function getMockAttempt(examKey, mockId, attemptId){
   var list = ensureMockAttempts(examKey, mockId);
   return list.find(function(a){ return a.id===attemptId; }) || null;
 }
+function getNote(examKey, chId){
+  var ex = ensureExam(examKey);
+  return (ex.notes && ex.notes[chId]) || "";
+}
+function setNote(examKey, chId, text){
+  var ex = ensureExam(examKey);
+  ex.notes = ex.notes || {};
+  ex.notes[chId] = text;
+  saveStore(store);
+}
+function getHighlightHtml(examKey, chId, tab){
+  var ex = ensureExam(examKey);
+  return (ex.highlights && ex.highlights[chId+"::"+tab]) || null;
+}
+function setHighlightHtml(examKey, chId, tab, html){
+  var ex = ensureExam(examKey);
+  ex.highlights = ex.highlights || {};
+  ex.highlights[chId+"::"+tab] = html;
+  saveStore(store);
+}
+function clearHighlights(examKey, chId, tab){
+  var ex = ensureExam(examKey);
+  if(ex.highlights) delete ex.highlights[chId+"::"+tab];
+  saveStore(store);
+}
 function cardState(examKey, cardId){
   var ex = ensureExam(examKey);
   return ex.cards[cardId] || null;
@@ -135,6 +160,8 @@ var ICON = {
   menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   glossary:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h5"/></svg>',
+  highlighter:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m14.5 5.5 4 4"/><path d="M13 3.5 20.5 11 17 14.5 9.5 7 13 3.5Z"/></svg>',
+  pencil:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>',
   cards:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="14" height="14" rx="2"/><path d="M7 6V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/></svg>',
   quiz:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4"/><path d="M12 17h.01"/></svg>',
@@ -258,6 +285,13 @@ function shuffle(arr){
   for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
   return a;
 }
+function shuffleOptions(q){
+  var idxs = shuffle(q.options.map(function(_,i){ return i; }));
+  return Object.assign({}, q, {
+    options: idxs.map(function(i){ return q.options[i]; }),
+    correctIndex: idxs.indexOf(q.correctIndex)
+  });
+}
 function examTitle(k){ return DATA[k] ? DATA[k].title : k; }
 
 function chapterProgressPct(examKey, ch){
@@ -303,6 +337,7 @@ function render(){
   var second = parts[1];
   if(second === "_quiz"){ renderFullQuiz(examKey); return; }
   if(second === "_cisiquiz"){ renderCisiFullQuiz(examKey); return; }
+  if(second === "_mixed"){ renderMixedPractice(examKey); return; }
   if(second === "_mocks"){
     var mockId = parts[2];
     var attemptId = parts[3];
@@ -482,6 +517,7 @@ function renderExamOverview(examKey){
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
         (mockCount>0 ? '<button class="btn btn-teal" id="mocksBtn">'+ICON.quiz+' Mock exams ('+mockCount+')</button>' : '') +
         (cisiTotal>0 ? '<button class="btn btn-primary" id="cisiExamBtn">'+ICON.quiz+' CISI exam mode ('+cisiTotal+')</button>' : '') +
+        '<button class="btn btn-primary" id="mixedBtn">'+ICON.target+' Mixed practice</button>' +
         '<button class="btn btn-primary" id="fullQuizBtn">'+ICON.quiz+' Full exam simulation</button>' +
       '</div>' +
     '</div>' +
@@ -505,6 +541,7 @@ function renderExamOverview(examKey){
   if(mb) mb.onclick = function(){ navigate([examKey, "_mocks"]); };
   var cb = document.getElementById("cisiExamBtn");
   if(cb) cb.onclick = function(){ navigate([examKey, "_cisiquiz"]); };
+  document.getElementById("mixedBtn").onclick = function(){ navigate([examKey, "_mixed"]); };
   var wb = document.getElementById("weakBtn");
   if(wb) wb.onclick = function(){ navigate([examKey, "_weak"]); };
   document.getElementById("exportBtn").onclick = function(){ navigate([examKey, "_export"]); };
@@ -572,16 +609,123 @@ function renderChapter(examKey, chapter, tab){
   });
 
   var content = document.getElementById("tabContent");
-  if(tab==="summary") renderSummaryTab(content, chapter);
-  else if(tab==="detail") renderDetailTab(content, chapter);
+  if(tab==="summary") renderSummaryTab(content, examKey, chapter);
+  else if(tab==="detail") renderDetailTab(content, examKey, chapter);
   else if(tab==="mindmap") renderMindMapTab(content, chapter);
   else if(tab==="quiz") renderQuizTab(content, examKey, chapter);
   else if(tab==="cisiQuiz") renderCisiQuizTab(content, examKey, chapter);
   else if(tab==="flashcards") renderFlashcardsTab(content, examKey, chapter);
-  else renderSummaryTab(content, chapter);
+  else renderSummaryTab(content, examKey, chapter);
 }
 
-function renderSummaryTab(content, chapter){
+function studyToolbarHtml(examKey, chId, tab){
+  var hasHl = !!getHighlightHtml(examKey, chId, tab);
+  return '<div class="study-toolbar">' +
+    '<button class="btn btn-sm" id="studyModeBtn">'+ICON.highlighter+' Highlight &amp; notes mode</button>' +
+    '<button class="btn btn-sm" id="clearHlBtn" style="display:'+(hasHl?"inline-flex":"none")+';">Clear highlights</button>' +
+    '<span class="study-hint" id="studyHint" style="display:none;">Select any text below to highlight it.</span>' +
+  '</div>';
+}
+function notesBoxHtml(){
+  return '<div class="notes-box" id="notesBox" style="display:none;">' +
+    '<div class="notes-box-title">'+ICON.pencil+' My notes for this chapter</div>' +
+    '<textarea id="notesArea" placeholder="Jot down anything you want to remember, in your own words…"></textarea>' +
+  '</div>';
+}
+function wireStudyMode(content, examKey, chId, tab){
+  var btn = content.querySelector("#studyModeBtn");
+  var clearBtn = content.querySelector("#clearHlBtn");
+  var hint = content.querySelector("#studyHint");
+  var notesBox = content.querySelector("#notesBox");
+  var proseArea = content.querySelector("#proseArea");
+  var active = false;
+  var popup = null;
+
+  function closePopup(){ if(popup){ popup.remove(); popup=null; } }
+
+  function persist(){ setHighlightHtml(examKey, chId, tab, proseArea.innerHTML); clearBtn.style.display = "inline-flex"; }
+
+  function onSelectionUp(e){
+    if(!active) return;
+    var sel = window.getSelection();
+    if(!sel || sel.isCollapsed || sel.rangeCount===0){ closePopup(); return; }
+    var range = sel.getRangeAt(0);
+    if(!proseArea.contains(range.commonAncestorContainer)){ closePopup(); return; }
+    var rect = range.getBoundingClientRect();
+    if(rect.width===0 && rect.height===0) return;
+    closePopup();
+    popup = document.createElement("div");
+    popup.className = "hl-popup";
+    popup.style.top = Math.max(8, rect.top + window.scrollY - 44) + "px";
+    popup.style.left = Math.max(8, rect.left + window.scrollX) + "px";
+    popup.innerHTML =
+      '<button data-c="hl-yellow" title="Yellow"></button>' +
+      '<button data-c="hl-green" title="Green"></button>' +
+      '<button data-c="hl-pink" title="Pink"></button>' +
+      '<button class="hl-remove" data-c="remove" title="Remove highlight">&times;</button>';
+    document.body.appendChild(popup);
+    Array.prototype.forEach.call(popup.querySelectorAll("button"), function(b){
+      b.onclick = function(ev){
+        ev.stopPropagation();
+        var c = b.getAttribute("data-c");
+        if(c==="remove"){
+          var node = range.commonAncestorContainer;
+          var el = node.nodeType===1 ? node : node.parentElement;
+          var markEl = el ? el.closest("mark") : null;
+          if(markEl){
+            var parent = markEl.parentNode;
+            while(markEl.firstChild) parent.insertBefore(markEl.firstChild, markEl);
+            parent.removeChild(markEl);
+          }
+        } else {
+          try{
+            var mark = document.createElement("mark");
+            mark.className = c;
+            range.surroundContents(mark);
+          }catch(err){
+            try{
+              var frag = range.extractContents();
+              var mark2 = document.createElement("mark");
+              mark2.className = c;
+              mark2.appendChild(frag);
+              range.insertNode(mark2);
+            }catch(err2){}
+          }
+        }
+        sel.removeAllRanges();
+        closePopup();
+        persist();
+      };
+    });
+  }
+
+  btn.onclick = function(){
+    active = !active;
+    btn.classList.toggle("active", active);
+    hint.style.display = active ? "inline" : "none";
+    notesBox.style.display = active ? "block" : "none";
+    proseArea.classList.toggle("study-active", active);
+    if(!active) closePopup();
+  };
+  clearBtn.onclick = function(){
+    clearHighlights(examKey, chId, tab);
+    render();
+  };
+  document.addEventListener("mouseup", onSelectionUp);
+  document.addEventListener("touchend", onSelectionUp);
+  document.addEventListener("mousedown", function(e){ if(popup && !popup.contains(e.target)) closePopup(); });
+}
+function wireNotesBox(content, examKey, chId){
+  var area = content.querySelector("#notesArea");
+  area.value = getNote(examKey, chId);
+  var t;
+  area.oninput = function(){
+    clearTimeout(t);
+    t = setTimeout(function(){ setNote(examKey, chId, area.value); }, 400);
+  };
+}
+
+function renderSummaryTab(content, examKey, chapter){
   var focusHtml = "";
   if(chapter.examFocus && chapter.examFocus.length){
     focusHtml = '<div class="exam-focus-box">' +
@@ -589,14 +733,25 @@ function renderSummaryTab(content, chapter){
       '<ul>' + chapter.examFocus.map(function(pt){ return '<li>'+pt+'</li>'; }).join("") + '</ul>' +
     '</div>';
   }
-  content.innerHTML = focusHtml + '<div class="summary-card"><div class="prose">'+(chapter.summaryHtml||"<p>No summary available.</p>")+'</div></div>';
+  var stored = getHighlightHtml(examKey, chapter.id, "summary");
+  var bodyHtml = stored || (chapter.summaryHtml || "<p>No summary available.</p>");
+  content.innerHTML = focusHtml + studyToolbarHtml(examKey, chapter.id, "summary") +
+    '<div class="summary-card"><div class="prose" id="proseArea">'+bodyHtml+'</div></div>' +
+    notesBoxHtml();
+  wireStudyMode(content, examKey, chapter.id, "summary");
+  wireNotesBox(content, examKey, chapter.id);
 }
-function renderDetailTab(content, chapter){
+function renderDetailTab(content, examKey, chapter){
   var secs = (chapter.sections||[]).map(function(s){
     return '<div class="section-block"><h3 class="sec-h">'+esc(s.heading)+'</h3><div class="prose">'+s.html+'</div></div>';
   }).join("");
-  content.innerHTML = secs || '<div class="empty-state">No detailed notes available.</div>';
+  var original = secs || '<div class="empty-state">No detailed notes available.</div>';
+  var stored = getHighlightHtml(examKey, chapter.id, "detail");
+  var bodyHtml = stored || original;
+  content.innerHTML = studyToolbarHtml(examKey, chapter.id, "detail") + '<div id="proseArea">'+bodyHtml+'</div>' + notesBoxHtml();
   attachDiagrams(content);
+  wireStudyMode(content, examKey, chapter.id, "detail");
+  wireNotesBox(content, examKey, chapter.id);
 }
 
 /* ---------- mind map (auto-built from the chapter's sections/sub-headings so it always reflects the notes) ---------- */
@@ -1170,7 +1325,96 @@ function renderCisiFullQuiz(examKey){
   };
 }
 
-/* ---------- Mock exams: full-length past papers, sat as a whole (not mixed with other pools) ---------- */
+/* ---------- Mixed practice: every question, every source, deduped — the antidote to memorising one fixed paper ---------- */
+function mixedPool(examKey){
+  var exam = DATA[examKey];
+  var seen = {};
+  var all = [];
+  function addQ(q, chId, src){
+    var key = (q.question||"").trim().toLowerCase();
+    if(seen[key]) return;
+    seen[key] = true;
+    all.push(Object.assign({}, q, { _chId: chId, _chapter: chapterTitle(examKey,chId), _qid: src+"::"+all.length }));
+  }
+  exam.chapters.forEach(function(ch){
+    (ch.mcqs||[]).forEach(function(q){ addQ(q, ch.id, "practice"); });
+    (ch.cisiMcqs||[]).forEach(function(q){ addQ(q, ch.id, "cisi"); });
+  });
+  (exam.mockExams||[]).forEach(function(m){
+    m.mcqs.forEach(function(q){ addQ(q, q.chId, "mock"); });
+  });
+  return all;
+}
+
+function renderMixedPractice(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var all = mixedPool(examKey);
+
+  if(all.length===0){
+    app.innerHTML = '<div class="quiz-shell"><div class="chapter-head">'+backRow(exam.title)+
+      '<h1>Mixed practice</h1></div><div class="empty-state">No questions available yet.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+
+  app.innerHTML = '<div class="quiz-shell" id="mixedShell">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Mixed practice</div>' +
+    '<h1>Mixed practice</h1><div class="fmt">Every question from the notes, the CISI bank and all mock papers, deduplicated ('+all.length+' unique questions) and shuffled — the best way to test real understanding rather than memorised papers.</div></div>' +
+    '<div class="quiz-config">' +
+      '<div>How many questions?</div>' +
+      '<div class="qty-chips" id="lenChips"></div>' +
+      '<div>Timed?</div>' +
+      '<div class="opt-row" id="timeChips"></div>' +
+      '<button class="btn btn-primary" id="startMixed" style="align-self:flex-start;">'+ICON.quiz+' Start</button>' +
+    '</div></div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var options = [];
+  for(var n=10; n<all.length; n+=10) options.push(n);
+  options.push(all.length);
+  var chosen = options[0];
+  var timed = true;
+  var chips = document.getElementById("lenChips");
+  chips.innerHTML = options.map(function(n,i){
+    return '<button class="chip qty-chip '+(i===0?"active":"")+'" data-n="'+n+'">'+n+(n===all.length?' (all)':'')+'</button>';
+  }).join("");
+  Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(c){
+    c.onclick = function(){
+      Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(x){x.classList.remove("active");});
+      c.classList.add("active"); chosen = +c.getAttribute("data-n");
+      renderTimeChips();
+    };
+  });
+  var timeChips = document.getElementById("timeChips");
+  function timeLabel(n){ var s = n*EXAM_SECONDS_PER_Q; return "Timed ("+Math.round(s/60)+" min)"; }
+  function renderTimeChips(){
+    timeChips.innerHTML =
+      '<button class="chip '+(timed?"active":"")+'" data-t="1">'+timeLabel(chosen)+'</button>' +
+      '<button class="chip '+(!timed?"active":"")+'" data-t="0">Untimed</button>';
+    Array.prototype.forEach.call(timeChips.querySelectorAll(".chip"), function(c){
+      c.onclick = function(){ timed = c.getAttribute("data-t")==="1"; renderTimeChips(); };
+    });
+  }
+  renderTimeChips();
+
+  document.getElementById("startMixed").onclick = function(){
+    var set = shuffle(all).slice(0, chosen);
+    var container = document.getElementById("mixedShell");
+    runQuizUI(container, examKey, exam.title+" — Mixed practice", set, function(pctScore, byChapter){
+      Object.keys(byChapter).forEach(function(chId){
+        var b = byChapter[chId];
+        recordQuizResult(examKey, chId+"_mixed", pct(b.correct, b.total));
+      });
+    }, { isFullExam:true, timerSeconds: timed ? chosen*EXAM_SECONDS_PER_Q : null });
+  };
+}
+
+
 function mockBestScore(examKey, mockId){
   var list = ensureMockAttempts(examKey, mockId);
   if(list.length===0) return null;
@@ -1229,12 +1473,25 @@ function renderMockExamRunner(examKey, mockId){
 
   var historyHtml = "";
   if(attempts.length>0){
-    historyHtml =
+    var firstAttempt = attempts[attempts.length-1]; // list is unshifted, so oldest = last
+    var latestAttempt = attempts[0];
+    var jump = latestAttempt.pct - firstAttempt.pct;
+    var memoWarning = "";
+    if(attempts.length>=2 && jump>=15){
+      memoWarning = '<div class="memo-warning">' + ICON.target +
+        ' Your score jumped '+jump+' points since your first go at this paper ('+firstAttempt.pct+'% &rarr; '+latestAttempt.pct+'%). ' +
+        'That can be real progress — but it can also mean you\'re starting to recognise these exact questions rather than the underlying rules. ' +
+        'Your <b>first-attempt score is the more honest signal</b> of where you actually stand. ' +
+        'For broader, less repetitive practice, try <a data-nav="mixed">Mixed practice</a> — it pools every question across the whole subject so you rarely see the same one twice.' +
+      '</div>';
+    }
+    historyHtml = memoWarning +
       '<div class="mock-history">' +
         '<div class="mock-history-title">Your past attempts (nothing is lost — every attempt is kept)</div>' +
         attempts.map(function(a){
+          var isFirst = a.id === firstAttempt.id;
           return '<button class="mock-attempt-row" data-attempt="'+esc(a.id)+'">' +
-            '<span class="mock-attempt-date">'+esc(fmtAttemptDate(a.date))+'</span>' +
+            '<span class="mock-attempt-date">'+(isFirst?'<span class="attempt-badge">First attempt</span> ':'')+esc(fmtAttemptDate(a.date))+'</span>' +
             '<span class="mock-attempt-score '+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
             '<span class="mock-attempt-arrow">'+ICON.chevron+'</span>' +
           '</button>';
@@ -1260,6 +1517,8 @@ function renderMockExamRunner(examKey, mockId){
   Array.prototype.forEach.call(app.querySelectorAll(".mock-attempt-row"), function(el){
     el.onclick = function(){ navigate([examKey, "_mocks", mock.id, el.getAttribute("data-attempt")]); };
   });
+  var mixedLink = app.querySelector('[data-nav="mixed"]');
+  if(mixedLink) mixedLink.onclick = function(){ navigate([examKey, "_mixed"]); };
 
   document.getElementById("startMock").onclick = function(){
     var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title, _qIndex:i }); });
@@ -1356,6 +1615,7 @@ function chapterTitle(examKey, chId){
 
 function runQuizUI(container, examKey, label, questions, onFinish, opts){
   opts = opts || {};
+  questions = questions.map(shuffleOptions);
   stopActiveTimer(); stopActiveQuizKeys();
   var idx = 0, correctCount = 0;
   var byChapter = {}; // chId -> {correct,total}
@@ -1544,7 +1804,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
     onFinish(p, byChapter, answeredMap);
     document.getElementById("retryBtn").onclick = function(){
       idx=0; correctCount=0; byChapter={}; wrongOnes=[]; timedOut=false; timeLeft = opts.timerSeconds || null; timerStarted=false; answeredMap={};
-      questions = shuffle(questions); renderQ();
+      questions = shuffle(questions).map(shuffleOptions); renderQ();
     };
     var mb = document.getElementById("mistakesBtn");
     if(mb) mb.onclick = function(){
