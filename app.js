@@ -744,6 +744,51 @@ function wireNotesBox(content, examKey, chId){
   };
 }
 
+var CROSS_CHAPTER_LINKS = {
+  "reg-ch1": [
+    { text:"The MLRO you'll meet in Money Laundering is always a Senior Manager Function under the SM&CR you just read about here.", targetCh:"reg-ch3", targetTab:"detail", label:"Money Laundering — MLRO" },
+    { text:"Whether COBS applies to a firm's business (MiFID vs non-MiFID) traces back to the regulated activities and Part 4A permission you learn here.", targetCh:"reg-ch2", targetTab:"detail", label:"Application of COBS" },
+    { text:"FSCS is supervised jointly by the FCA and PRA — the same twin-peaks split you saw in Part 4A authorisation for dual-regulated firms.", targetCh:"reg-ch4", targetTab:"detail", label:"The FSCS" },
+    { text:"An appointed representative (AR) conducts COBS business entirely under its principal's Part 4A permission — see how that plays out in practice.", targetCh:"reg-ch2", targetTab:"detail", label:"Appointed Representatives" }
+  ],
+  "reg-ch2": [
+    { text:"A client unhappy with the suitability/appropriateness of advice they received here is exactly the kind of person who becomes an FOS-eligible complainant.", targetCh:"reg-ch4", targetTab:"detail", label:"Customer Complaints" },
+    { text:"Personal account dealing rules here sit alongside — and sometimes overlap with — PDMR dealing restrictions and the closed period in market abuse.", targetCh:"reg-ch3", targetTab:"detail", label:"Market Manipulation" },
+    { text:"Which regulated activities a firm can even offer (and therefore which COBS rules bite) comes from the Part 4A permission covered in Chapter 1.", targetCh:"reg-ch1", targetTab:"detail", label:"Regulated Activities" },
+    { text:"Client money segregation (CASS, covered here) is one of the very few protections that applies to an eligible counterparty exactly like a retail client — see the ECP disapplication table.", targetCh:"reg-ch2", targetTab:"summary", label:"ECP disapplication (this chapter)" }
+  ],
+  "reg-ch3": [
+    { text:"The MLRO is always a Senior Manager Function — see how that role fits within the wider SM&CR structure.", targetCh:"reg-ch1", targetTab:"detail", label:"Fitness and Propriety (SM&CR)" },
+    { text:"An employee who whistleblows on suspected market abuse is protected under exactly the same whistleblowing regime covered in Complaints and Redress.", targetCh:"reg-ch4", targetTab:"detail", label:"Whistleblowing" },
+    { text:"Personal account dealing rules in Conduct of Business directly intersect with the PDMR/insider dealing rules covered here.", targetCh:"reg-ch2", targetTab:"detail", label:"Dealing and Managing" },
+    { text:"The FCA's civil market abuse penalty decisions (fine vs public censure) follow the same enforcement decision-making framework as general FCA disciplinary action.", targetCh:"reg-ch1", targetTab:"detail", label:"The Regulatory Environment" }
+  ],
+  "reg-ch4": [
+    { text:"The Whistleblowers' Champion role required at some firms sits within the SM&CR accountability structure covered in Chapter 1.", targetCh:"reg-ch1", targetTab:"detail", label:"Fitness and Propriety (SM&CR)" },
+    { text:"Most FOS complaints trace back to a suitability or appropriateness failure — see the underlying advice standards that create these disputes.", targetCh:"reg-ch2", targetTab:"detail", label:"Advising and Selling Standards" },
+    { text:"An MLRO reports money-laundering suspicions to the NCA — a completely separate channel from the ICO breach reporting covered here. Don't mix them up.", targetCh:"reg-ch3", targetTab:"detail", label:"Money Laundering" },
+    { text:"FSCS is supervised jointly by the FCA and PRA — trace that twin-peaks structure back to how firms get authorised in the first place.", targetCh:"reg-ch1", targetTab:"detail", label:"The Regulatory Environment" }
+  ]
+};
+function connectionsHtml(chId){
+  var items = CROSS_CHAPTER_LINKS[chId] || [];
+  if(items.length===0) return "";
+  return '<div class="connections-box">' +
+    '<div class="connections-title">'+ICON.map+' How this chapter connects to the rest of the course</div>' +
+    items.map(function(l,i){
+      return '<button class="connection-row" data-idx="'+i+'"><span class="connection-text">'+esc(l.text)+'</span><span class="connection-target">'+esc(l.label)+' '+ICON.chevron+'</span></button>';
+    }).join("") +
+  '</div>';
+}
+function wireConnections(content, examKey, chId){
+  var items = CROSS_CHAPTER_LINKS[chId] || [];
+  Array.prototype.forEach.call(content.querySelectorAll(".connection-row"), function(btn){
+    var item = items[+btn.getAttribute("data-idx")];
+    if(!item) return;
+    btn.onclick = function(){ navigate([examKey, item.targetCh, item.targetTab]); };
+  });
+}
+
 function renderSummaryTab(content, examKey, chapter){
   var focusHtml = "";
   if(chapter.examFocus && chapter.examFocus.length){
@@ -754,9 +799,10 @@ function renderSummaryTab(content, examKey, chapter){
   }
   var stored = getHighlightHtml(examKey, chapter.id, "summary");
   var bodyHtml = stored || (chapter.summaryHtml || "<p>No summary available.</p>");
-  content.innerHTML = focusHtml + studyToolbarHtml(examKey, chapter.id, "summary") +
+  content.innerHTML = connectionsHtml(chapter.id) + focusHtml + studyToolbarHtml(examKey, chapter.id, "summary") +
     '<div class="summary-card"><div class="prose" id="proseArea">'+bodyHtml+'</div></div>' +
     notesBoxHtml();
+  wireConnections(content, examKey, chapter.id);
   wireStudyMode(content, examKey, chapter.id, "summary");
   wireNotesBox(content, examKey, chapter.id);
 }
@@ -805,8 +851,9 @@ function renderDetailTab(content, examKey, chapter){
   var original = secs || '<div class="empty-state">No detailed notes available.</div>';
   var stored = getHighlightHtml(examKey, chapter.id, "detail");
   var bodyHtml = stored || original;
-  content.innerHTML = studyToolbarHtml(examKey, chapter.id, "detail") + '<div id="proseArea">'+bodyHtml+'</div>' + relatedLinksHtml(chapter.id) + notesBoxHtml();
+  content.innerHTML = connectionsHtml(chapter.id) + studyToolbarHtml(examKey, chapter.id, "detail") + '<div id="proseArea">'+bodyHtml+'</div>' + relatedLinksHtml(chapter.id) + notesBoxHtml();
   attachDiagrams(content);
+  wireConnections(content, examKey, chapter.id);
   wireStudyMode(content, examKey, chapter.id, "detail");
   wireRelatedLinks(content, examKey, chapter.id);
   wireNotesBox(content, examKey, chapter.id);

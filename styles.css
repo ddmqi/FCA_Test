@@ -485,6 +485,23 @@ button{font-family:inherit;}
 .exam-focus-box li{font-size:13px; line-height:1.55; color:var(--text);}
 .exam-focus-box li strong{color:var(--accent-strong);}
 
+.connections-box{
+  background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:18px 20px; margin-bottom:20px; display:flex; flex-direction:column; gap:8px;
+}
+.connections-title{display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; color:var(--text-faint); margin-bottom:4px;}
+.connections-title svg{width:14px; height:14px;}
+.connection-row{
+  display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; text-align:left;
+  background:var(--bg-inset); border:1px solid transparent; border-radius:9px; padding:12px 14px; cursor:pointer;
+}
+.connection-row:hover{border-color:var(--accent);}
+.connection-text{font-size:12.5px; color:var(--text-dim); line-height:1.5; flex:1;}
+.connection-target{
+  font-size:11.5px; font-weight:700; color:var(--accent-strong); white-space:nowrap; display:flex; align-items:center; gap:3px; flex-shrink:0;
+}
+.connection-target svg{width:12px; height:12px; transform:rotate(90deg);}
+
 .practice-bank-intro{
   display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-faint);
   background:var(--bg-inset); border-radius:9px; padding:10px 14px; margin-bottom:18px;
