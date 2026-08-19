@@ -238,6 +238,7 @@ button{font-family:inherit;}
 .btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-contrast);}
 .btn-primary:hover{background:var(--accent-strong); border-color:var(--accent-strong);}
 .btn-teal{background:var(--teal); border-color:var(--teal); color:#04211d;}
+.btn-challenge{background:var(--red); border-color:var(--red); color:#fff;}
 .btn-sm{padding:7px 12px; font-size:12.5px;}
 .btn svg{width:15px; height:15px;}
 
@@ -483,6 +484,35 @@ button{font-family:inherit;}
 .exam-focus-box ul{margin:0; padding-left:20px; display:flex; flex-direction:column; gap:9px;}
 .exam-focus-box li{font-size:13px; line-height:1.55; color:var(--text);}
 .exam-focus-box li strong{color:var(--accent-strong);}
+
+.practice-bank-intro{
+  display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-faint);
+  background:var(--bg-inset); border-radius:9px; padding:10px 14px; margin-bottom:18px;
+}
+.practice-bank-intro svg{width:14px; height:14px; flex-shrink:0; color:var(--accent-strong);}
+
+.challenge-scores{display:flex; flex-direction:column; gap:8px; margin-bottom:6px;}
+.challenge-score-row{display:flex; align-items:center; gap:10px;}
+.challenge-ch-name{flex:1; font-size:13px; font-weight:600; color:var(--text-dim);}
+.challenge-score-input{
+  width:60px; padding:6px 8px; border-radius:8px; border:1px solid var(--border-strong);
+  background:var(--bg-inset); color:var(--text); font-size:13px; text-align:right;
+}
+.challenge-pct-sign{font-size:13px; color:var(--text-faint); width:14px;}
+
+.related-links-box{
+  margin-top:26px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg);
+  padding:16px 18px; display:flex; flex-direction:column; gap:8px;
+}
+.related-links-title{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; color:var(--text-faint); margin-bottom:4px;}
+.related-links-title svg{width:14px; height:14px;}
+.related-link-btn{
+  display:flex; align-items:center; justify-content:space-between; width:100%; text-align:left;
+  font-size:13px; font-weight:600; color:var(--text-dim); background:var(--bg-inset); border:1px solid transparent;
+  border-radius:9px; padding:10px 14px; cursor:pointer;
+}
+.related-link-btn:hover{border-color:var(--accent); color:var(--accent-strong);}
+.related-link-btn svg{width:14px; height:14px; transform:rotate(90deg); flex-shrink:0;}
 
 /* ---------- Study mode: highlighting + notes ---------- */
 .study-toolbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px;}

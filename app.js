@@ -342,6 +342,7 @@ function render(){
   if(second === "_quiz"){ renderFullQuiz(examKey); return; }
   if(second === "_cisiquiz"){ renderCisiFullQuiz(examKey); return; }
   if(second === "_mixed"){ renderMixedPractice(examKey); return; }
+  if(second === "_challenge"){ renderChallengeExam(examKey); return; }
   if(second === "_mocks"){
     var mockId = parts[2];
     var attemptId = parts[3];
@@ -527,6 +528,7 @@ function renderExamOverview(examKey){
         (mockCount>0 ? '<button class="btn btn-teal" id="mocksBtn">'+ICON.quiz+' Mock exams ('+mockCount+')</button>' : '') +
         (cisiTotal>0 ? '<button class="btn btn-primary" id="cisiExamBtn">'+ICON.quiz+' CISI exam mode ('+cisiTotal+')</button>' : '') +
         '<button class="btn btn-primary" id="mixedBtn">'+ICON.target+' Mixed practice</button>' +
+        '<button class="btn btn-challenge" id="challengeBtn">'+ICON.target+' Challenge Exam</button>' +
         '<button class="btn btn-primary" id="fullQuizBtn">'+ICON.quiz+' Full exam simulation</button>' +
       '</div>' +
     '</div>' +
@@ -555,6 +557,7 @@ function renderExamOverview(examKey){
   var cb = document.getElementById("cisiExamBtn");
   if(cb) cb.onclick = function(){ navigate([examKey, "_cisiquiz"]); };
   document.getElementById("mixedBtn").onclick = function(){ navigate([examKey, "_mixed"]); };
+  document.getElementById("challengeBtn").onclick = function(){ navigate([examKey, "_challenge"]); };
   var wb = document.getElementById("weakBtn");
   if(wb) wb.onclick = function(){ navigate([examKey, "_weak"]); };
   document.getElementById("exportBtn").onclick = function(){ navigate([examKey, "_export"]); };
@@ -599,6 +602,9 @@ function renderChapter(examKey, chapter, tab){
   if(chapter.cisiMcqs && chapter.cisiMcqs.length){
     tabs.push(["cisiQuiz","Quiz CISI ("+chapter.cisiMcqs.length+")", ICON.quiz]);
   }
+  if(chapter.practiceBank && chapter.practiceBank.length){
+    tabs.push(["practiceBank","Practice Bank ("+chapter.practiceBank.length+")", ICON.target]);
+  }
   var tabHtml = tabs.map(function(t){
     return '<button data-tab="'+t[0]+'" class="'+(t[0]===tab?"active":"")+'">'+t[1]+'</button>';
   }).join("");
@@ -626,6 +632,7 @@ function renderChapter(examKey, chapter, tab){
   else if(tab==="mindmap") renderMindMapTab(content, chapter);
   else if(tab==="quiz") renderQuizTab(content, examKey, chapter);
   else if(tab==="cisiQuiz") renderCisiQuizTab(content, examKey, chapter);
+  else if(tab==="practiceBank") renderPracticeBankTab(content, examKey, chapter);
   else if(tab==="flashcards") renderFlashcardsTab(content, examKey, chapter);
   else renderSummaryTab(content, examKey, chapter);
 }
@@ -753,6 +760,44 @@ function renderSummaryTab(content, examKey, chapter){
   wireStudyMode(content, examKey, chapter.id, "summary");
   wireNotesBox(content, examKey, chapter.id);
 }
+var RELATED_LINKS_BY_CHAPTER = {
+  "reg-ch1": [
+    { label:"Regulatory bodies — who's accountable to whom", route:["_regulators"] },
+    { label:"Mind map — the regulator relationship map for this chapter", route:["reg-ch1","mindmap"] },
+    { label:"Glossary — key terms across the whole subject", route:["_glossary"] }
+  ],
+  "reg-ch2": [
+    { label:"Who gets what — client protections by client type", route:["_clientrules"] },
+    { label:"Regulatory bodies — FCA, PRA and how COBS applies", route:["_regulators"] },
+    { label:"Glossary — key terms across the whole subject", route:["_glossary"] }
+  ],
+  "reg-ch3": [
+    { label:"Regulatory bodies — NCA, JMLSG, FATF and the AML chain", route:["_regulators"] },
+    { label:"Who gets what — client money rules (apply to everyone)", route:["_clientrules"] },
+    { label:"Glossary — key terms across the whole subject", route:["_glossary"] }
+  ],
+  "reg-ch4": [
+    { label:"Regulatory bodies — FSCS, FOS, ICO compared", route:["_regulators"] },
+    { label:"Who gets what — FSCS/FOS eligibility by client type", route:["_clientrules"] },
+    { label:"Glossary — key terms across the whole subject", route:["_glossary"] }
+  ]
+};
+function relatedLinksHtml(chId){
+  var items = RELATED_LINKS_BY_CHAPTER[chId] || [];
+  if(items.length===0) return "";
+  return '<div class="related-links-box"><div class="related-links-title">'+ICON.map+' See also — how this links to the rest of the subject</div>' +
+    items.map(function(l,i){ return '<button class="related-link-btn" data-idx="'+i+'">'+esc(l.label)+' '+ICON.chevron+'</button>'; }).join("") +
+  '</div>';
+}
+function wireRelatedLinks(content, examKey, chId){
+  var items = RELATED_LINKS_BY_CHAPTER[chId] || [];
+  Array.prototype.forEach.call(content.querySelectorAll(".related-link-btn"), function(btn){
+    var item = items[+btn.getAttribute("data-idx")];
+    if(!item) return;
+    btn.onclick = function(){ navigate([examKey].concat(item.route)); };
+  });
+}
+
 function renderDetailTab(content, examKey, chapter){
   var secs = (chapter.sections||[]).map(function(s){
     return '<div class="section-block"><h3 class="sec-h">'+esc(s.heading)+'</h3><div class="prose">'+s.html+'</div></div>';
@@ -760,9 +805,10 @@ function renderDetailTab(content, examKey, chapter){
   var original = secs || '<div class="empty-state">No detailed notes available.</div>';
   var stored = getHighlightHtml(examKey, chapter.id, "detail");
   var bodyHtml = stored || original;
-  content.innerHTML = studyToolbarHtml(examKey, chapter.id, "detail") + '<div id="proseArea">'+bodyHtml+'</div>' + notesBoxHtml();
+  content.innerHTML = studyToolbarHtml(examKey, chapter.id, "detail") + '<div id="proseArea">'+bodyHtml+'</div>' + relatedLinksHtml(chapter.id) + notesBoxHtml();
   attachDiagrams(content);
   wireStudyMode(content, examKey, chapter.id, "detail");
+  wireRelatedLinks(content, examKey, chapter.id);
   wireNotesBox(content, examKey, chapter.id);
 }
 
@@ -984,6 +1030,22 @@ function renderCisiQuizTab(content, examKey, chapter){
     runQuizUI(content, examKey, chapter.title+" — CISI questions", picked, function(pct){
       recordQuizResult(examKey, chapter.id+"_cisi", pct);
     }, { chapterId: chapter.id+"_cisi" });
+  });
+}
+
+/* ---------- Practice Bank: original, never-seen questions written to reinforce genuine understanding ---------- */
+function renderPracticeBankTab(content, examKey, chapter){
+  var mcqs = chapter.practiceBank || [];
+  if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No practice bank questions for this chapter yet.</div>'; return; }
+  content.innerHTML = '<div class="practice-bank-intro">'+ICON.target+' Original questions, written specifically to test understanding rather than memory — not from the CISI bank or the mocks.</div>';
+  var setupHost = document.createElement("div");
+  content.appendChild(setupHost);
+  renderQuizSetup(setupHost, mcqs.length, function(count){
+    var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::practice::"+i, _chId: chapter.id, _chapter: chapter.title }); });
+    var picked = shuffle(tagged).slice(0, count);
+    runQuizUI(content, examKey, chapter.title+" — Practice Bank", picked, function(pct){
+      recordQuizResult(examKey, chapter.id+"_practice", pct);
+    }, { chapterId: chapter.id+"_practice" });
   });
 }
 
@@ -1424,6 +1486,118 @@ function renderMixedPractice(examKey){
       Object.keys(byChapter).forEach(function(chId){
         var b = byChapter[chId];
         recordQuizResult(examKey, chId+"_mixed", pct(b.correct, b.total));
+      });
+    }, { isFullExam:true, timerSeconds: timed ? chosen*EXAM_SECONDS_PER_Q : null });
+  };
+}
+
+/* ---------- Challenge Exam: draws from the original Practice Bank, weighted toward your weakest chapters ---------- */
+function renderChallengeExam(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var chaptersWithBank = exam.chapters.filter(function(ch){ return ch.practiceBank && ch.practiceBank.length; });
+  var totalAvailable = chaptersWithBank.reduce(function(s,ch){ return s+ch.practiceBank.length; }, 0);
+
+  if(chaptersWithBank.length===0){
+    app.innerHTML = '<div class="main-narrow"><div class="chapter-head">'+backRow(exam.title)+
+      '<h1>Challenge Exam</h1></div><div class="empty-state">No practice bank questions available yet.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+
+  var lastKnownScores = { "reg-ch1":41, "reg-ch2":71, "reg-ch3":57, "reg-ch4":55 };
+  var scoreRowsHtml = chaptersWithBank.map(function(ch){
+    var defScore = lastKnownScores[ch.id] != null ? lastKnownScores[ch.id] : 60;
+    return '<div class="challenge-score-row">' +
+      '<span class="challenge-ch-name">'+esc(ch.title)+'</span>' +
+      '<input type="number" class="challenge-score-input" id="score-'+esc(ch.id)+'" min="0" max="100" value="'+defScore+'" />' +
+      '<span class="challenge-pct-sign">%</span>' +
+    '</div>';
+  }).join("");
+
+  app.innerHTML = '<div class="main-narrow" id="challengeShell">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Challenge Exam</div>' +
+    '<h1>Challenge Exam</h1><div class="fmt">Original questions from the Practice Bank ('+totalAvailable+' available), automatically weighted so your weaker chapters get more questions. Enter your latest score per chapter below — lower score, more questions from that chapter.</div>' +
+    '</div>' +
+    '<div class="quiz-config">' +
+      '<div class="challenge-scores">'+scoreRowsHtml+'</div>' +
+      '<div>How many questions in total?</div>' +
+      '<div class="qty-chips" id="lenChips"></div>' +
+      '<div>Timed?</div>' +
+      '<div class="opt-row" id="timeChips"></div>' +
+      '<button class="btn btn-challenge" id="startChallenge" style="align-self:flex-start;">'+ICON.target+' Start Challenge</button>' +
+    '</div></div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var options = [];
+  for(var n=10; n<totalAvailable; n+=10) options.push(n);
+  options.push(totalAvailable);
+  var chosen = options[0];
+  var timed = true;
+  var chips = document.getElementById("lenChips");
+  chips.innerHTML = options.map(function(n,i){
+    return '<button class="chip qty-chip '+(i===0?"active":"")+'" data-n="'+n+'">'+n+(n===totalAvailable?' (all)':'')+'</button>';
+  }).join("");
+  Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(c){
+    c.onclick = function(){
+      Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(x){x.classList.remove("active");});
+      c.classList.add("active"); chosen = +c.getAttribute("data-n");
+      renderTimeChips();
+    };
+  });
+  var timeChips = document.getElementById("timeChips");
+  function timeLabel(n){ var s = n*EXAM_SECONDS_PER_Q; return "Timed ("+Math.round(s/60)+" min)"; }
+  function renderTimeChips(){
+    timeChips.innerHTML =
+      '<button class="chip '+(timed?"active":"")+'" data-t="1">'+timeLabel(chosen)+'</button>' +
+      '<button class="chip '+(!timed?"active":"")+'" data-t="0">Untimed</button>';
+    Array.prototype.forEach.call(timeChips.querySelectorAll(".chip"), function(c){
+      c.onclick = function(){ timed = c.getAttribute("data-t")==="1"; renderTimeChips(); };
+    });
+  }
+  renderTimeChips();
+
+  document.getElementById("startChallenge").onclick = function(){
+    var weights = {};
+    var totalWeight = 0;
+    chaptersWithBank.forEach(function(ch){
+      var scoreInput = document.getElementById("score-"+ch.id);
+      var score = Math.max(0, Math.min(100, +scoreInput.value || 60));
+      var w = Math.max(8, 100 - score);
+      weights[ch.id] = w;
+      totalWeight += w;
+    });
+    var pool = [];
+    chaptersWithBank.forEach(function(ch){
+      var share = Math.round((weights[ch.id] / totalWeight) * chosen);
+      share = Math.min(share, ch.practiceBank.length);
+      var picked = shuffle(ch.practiceBank).slice(0, share).map(function(q,i){
+        return Object.assign({}, q, { _qid: ch.id+"::challenge::"+i, _chId: ch.id, _chapter: ch.title });
+      });
+      pool = pool.concat(picked);
+    });
+    if(pool.length < chosen){
+      var used = {};
+      pool.forEach(function(q){ used[q._qid]=true; });
+      var leftoverPool = [];
+      chaptersWithBank.forEach(function(ch){
+        ch.practiceBank.forEach(function(q,i){
+          var qid = ch.id+"::challenge::"+i;
+          if(!used[qid]) leftoverPool.push(Object.assign({}, q, { _qid: qid, _chId: ch.id, _chapter: ch.title }));
+        });
+      });
+      pool = pool.concat(shuffle(leftoverPool).slice(0, chosen-pool.length));
+    }
+    var set = shuffle(pool).slice(0, chosen);
+    var container = document.getElementById("challengeShell");
+    runQuizUI(container, examKey, exam.title+" — Challenge Exam", set, function(pctScore, byChapter){
+      Object.keys(byChapter).forEach(function(chId){
+        var b = byChapter[chId];
+        recordQuizResult(examKey, chId+"_challenge", pct(b.correct, b.total));
       });
     }, { isFullExam:true, timerSeconds: timed ? chosen*EXAM_SECONDS_PER_Q : null });
   };
