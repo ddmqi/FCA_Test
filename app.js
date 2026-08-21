@@ -94,6 +94,38 @@ function getMockAttempt(examKey, mockId, attemptId){
   var list = ensureMockAttempts(examKey, mockId);
   return list.find(function(a){ return a.id===attemptId; }) || null;
 }
+function customCards(examKey, chId){
+  var ex = ensureExam(examKey);
+  if(!ex.customCards) ex.customCards = {};
+  if(!ex.customCards[chId]) ex.customCards[chId] = [];
+  return ex.customCards[chId];
+}
+function allCustomCards(examKey){
+  var ex = ensureExam(examKey);
+  var out = [];
+  Object.keys(ex.customCards||{}).forEach(function(chId){
+    ex.customCards[chId].forEach(function(c){ out.push(Object.assign({}, c, { _chId: chId })); });
+  });
+  return out;
+}
+function addCustomCard(examKey, chId, front, back){
+  var list = customCards(examKey, chId);
+  var card = { id: "custom_"+Date.now()+"_"+Math.floor(Math.random()*100000), front: front, back: back, created: Date.now() };
+  list.unshift(card);
+  saveStore(store);
+  return card;
+}
+function editCustomCard(examKey, chId, cardId, front, back){
+  var list = customCards(examKey, chId);
+  var card = list.find(function(c){ return c.id===cardId; });
+  if(card){ card.front = front; card.back = back; saveStore(store); }
+}
+function deleteCustomCard(examKey, chId, cardId){
+  var ex = ensureExam(examKey);
+  if(!ex.customCards || !ex.customCards[chId]) return;
+  ex.customCards[chId] = ex.customCards[chId].filter(function(c){ return c.id!==cardId; });
+  saveStore(store);
+}
 function getNote(examKey, chId){
   var ex = ensureExam(examKey);
   return (ex.notes && ex.notes[chId]) || "";
@@ -156,6 +188,7 @@ initTheme();
 
 /* ---------- icons ---------- */
 var ICON = {
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>',
   search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
@@ -2059,7 +2092,10 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
 /* ---------- flashcards (chapter / all / glossary) — 3-tier priority queue: bad/medium cards resurface more often ---------- */
 function renderFlashcardsTab(content, examKey, chapter){
   var cards = (chapter.flashcards||[]).map(function(fc, i){ return Object.assign({}, fc, { _id: examKey+":"+chapter.id+":"+i }); });
-  runFlashcardUI(content, examKey, chapter.title, cards);
+  var custom = customCards(examKey, chapter.id).map(function(c){ return { front:c.front, back:c.back, _id: c.id, _custom:true }; });
+  content.innerHTML = customCardPanelHtml(false, null) + '<div id="fcDeckRoot"></div>';
+  wireCustomCardPanel(content, examKey, chapter.id, null, function(){ renderFlashcardsTab(content, examKey, chapter); });
+  runFlashcardUI(document.getElementById("fcDeckRoot"), examKey, chapter.title, cards.concat(custom));
 }
 function renderAllFlashcards(examKey){
   renderSidebar(examKey, null);
@@ -2068,11 +2104,106 @@ function renderAllFlashcards(examKey){
   exam.chapters.forEach(function(ch){
     (ch.flashcards||[]).forEach(function(fc,i){ cards.push(Object.assign({}, fc, { _id: examKey+":"+ch.id+":"+i, _chapter: ch.title })); });
   });
-  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1><div class="fmt">Every flashcard across every chapter, in one deck. Cards you rate Bad or Medium come back around more often.</div></div><div id="fcRoot"></div>';
+  var custom = allCustomCards(examKey).map(function(c){
+    var ch = exam.chapters.find(function(x){ return x.id===c._chId; });
+    return { front:c.front, back:c.back, _id: c.id, _chapter: ch?ch.title:c._chId, _custom:true };
+  });
+  app.innerHTML = '<div class="chapter-head">' + backRow(exam.title) + '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / All flashcards</div><h1>All flashcards</h1><div class="fmt">Every flashcard across every chapter, plus any you\'ve created yourself, in one deck. Cards you rate Bad or Medium come back around more often.</div></div>' +
+    customCardPanelHtml(true, exam.chapters) + '<div id="fcDeckRoot"></div>';
   wireBack(app, [examKey]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
-  runFlashcardUI(document.getElementById("fcRoot"), examKey, exam.title+" — all chapters", cards);
+  wireCustomCardPanel(app, examKey, null, exam.chapters, function(){ renderAllFlashcards(examKey); });
+  runFlashcardUI(document.getElementById("fcDeckRoot"), examKey, exam.title+" — all chapters", cards.concat(custom));
+}
+
+/* ---------- custom (user-created) flashcards: creation + management panel, reused on chapter tab and All Flashcards ---------- */
+function customCardPanelHtml(needsChapterPicker, chapters){
+  var picker = needsChapterPicker ?
+    '<select id="ccChapterSelect" class="cc-select">' +
+      chapters.map(function(c){ return '<option value="'+esc(c.id)+'">'+esc(c.title)+'</option>'; }).join("") +
+    '</select>' : "";
+  return '<div class="custom-card-panel">' +
+    '<div class="custom-card-row">' +
+      '<button class="btn btn-sm" id="ccToggleBtn">'+ICON.plus+' Create a flashcard</button>' +
+      '<button class="btn btn-sm" id="ccManageBtn">'+ICON.cards+' Manage my flashcards</button>' +
+    '</div>' +
+    '<div class="custom-card-form" id="ccForm" style="display:none;">' +
+      picker +
+      '<textarea id="ccFront" placeholder="Front — the question or term" rows="2"></textarea>' +
+      '<textarea id="ccBack" placeholder="Back — the answer" rows="3"></textarea>' +
+      '<div class="custom-card-actions"><button class="btn btn-primary btn-sm" id="ccSaveBtn">'+ICON.check+' Save flashcard</button><button class="btn btn-sm" id="ccCancelBtn">Cancel</button></div>' +
+    '</div>' +
+    '<div class="custom-card-list" id="ccList" style="display:none;"></div>' +
+  '</div>';
+}
+function wireCustomCardPanel(root, examKey, fixedChId, chapters, onChange){
+  var toggleBtn = root.querySelector("#ccToggleBtn");
+  var manageBtn = root.querySelector("#ccManageBtn");
+  var form = root.querySelector("#ccForm");
+  var list = root.querySelector("#ccList");
+  var front = root.querySelector("#ccFront");
+  var back = root.querySelector("#ccBack");
+  var chapterSelect = root.querySelector("#ccChapterSelect");
+
+  toggleBtn.onclick = function(){
+    list.style.display = "none";
+    form.style.display = form.style.display==="none" ? "flex" : "none";
+    if(form.style.display==="flex") front.focus();
+  };
+  root.querySelector("#ccCancelBtn").onclick = function(){ form.style.display="none"; front.value=""; back.value=""; };
+  root.querySelector("#ccSaveBtn").onclick = function(){
+    var f = front.value.trim(), b = back.value.trim();
+    if(!f || !b) return;
+    var targetChId = fixedChId || (chapterSelect ? chapterSelect.value : null);
+    if(!targetChId) return;
+    addCustomCard(examKey, targetChId, f, b);
+    front.value=""; back.value=""; form.style.display="none";
+    onChange();
+  };
+  manageBtn.onclick = function(){
+    form.style.display = "none";
+    list.style.display = list.style.display==="none" ? "block" : "none";
+    if(list.style.display==="block") renderManageList();
+  };
+
+  function renderManageList(){
+    var items = fixedChId ? customCards(examKey, fixedChId).map(function(c){ return Object.assign({}, c, { _chId: fixedChId }); }) : allCustomCards(examKey);
+    if(items.length===0){
+      list.innerHTML = '<div class="cc-empty">You haven\'t created any flashcards here yet.</div>';
+      return;
+    }
+    list.innerHTML = items.map(function(c,i){
+      var chLabel = "";
+      if(!fixedChId && chapters){
+        var ch = chapters.find(function(x){ return x.id===c._chId; });
+        chLabel = '<span class="cc-item-ch">'+esc(ch?ch.title:c._chId)+'</span>';
+      }
+      return '<div class="cc-item" data-idx="'+i+'">' +
+        '<div class="cc-item-main"><div class="cc-item-front">'+esc(c.front)+'</div>'+chLabel+'</div>' +
+        '<div class="cc-item-actions"><button class="cc-icon-btn" data-action="edit" data-idx="'+i+'">'+ICON.pencil+'</button><button class="cc-icon-btn cc-danger" data-action="delete" data-idx="'+i+'">'+ICON.close+'</button></div>' +
+      '</div>';
+    }).join("");
+
+    Array.prototype.forEach.call(list.querySelectorAll('[data-action="delete"]'), function(btn){
+      btn.onclick = function(){
+        var c = items[+btn.getAttribute("data-idx")];
+        deleteCustomCard(examKey, c._chId, c.id);
+        onChange();
+      };
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-action="edit"]'), function(btn){
+      btn.onclick = function(){
+        var c = items[+btn.getAttribute("data-idx")];
+        var newFront = window.prompt("Edit front:", c.front);
+        if(newFront===null) return;
+        var newBack = window.prompt("Edit back:", c.back);
+        if(newBack===null) return;
+        editCustomCard(examKey, c._chId, c.id, newFront.trim()||c.front, newBack.trim()||c.back);
+        onChange();
+      };
+    });
+  }
 }
 function renderGlossaryFlashcards(examKey){
   renderSidebar(examKey, null);
