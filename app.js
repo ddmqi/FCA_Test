@@ -94,6 +94,20 @@ function getMockAttempt(examKey, mockId, attemptId){
   var list = ensureMockAttempts(examKey, mockId);
   return list.find(function(a){ return a.id===attemptId; }) || null;
 }
+/* ---------- generalized attempt history, used by CISI Quiz and Practice Bank tabs (same shape as mock attempts) ---------- */
+function ensureQuizAttempts(examKey, quizId){
+  var ex = ensureExam(examKey);
+  if(!ex.quizAttempts) ex.quizAttempts = {};
+  if(!ex.quizAttempts[quizId]) ex.quizAttempts[quizId] = [];
+  return ex.quizAttempts[quizId];
+}
+function recordQuizAttempt(examKey, quizId, attempt){
+  var list = ensureQuizAttempts(examKey, quizId);
+  list.unshift(attempt);
+  if(list.length > 20) list.length = 20;
+  saveStore(store);
+  return attempt;
+}
 function customCards(examKey, chId){
   var ex = ensureExam(examKey);
   if(!ex.customCards) ex.customCards = {};
@@ -1104,29 +1118,98 @@ function renderQuizTab(content, examKey, chapter){
 function renderCisiQuizTab(content, examKey, chapter){
   var mcqs = chapter.cisiMcqs || [];
   if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No CISI questions for this chapter yet.</div>'; return; }
-  renderQuizSetup(content, mcqs.length, function(count){
-    var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::cisi::"+i, _chId: chapter.id, _chapter: chapter.title }); });
-    var picked = shuffle(tagged).slice(0, count);
-    runQuizUI(content, examKey, chapter.title+" — CISI questions", picked, function(pct){
-      recordQuizResult(examKey, chapter.id+"_cisi", pct);
-    }, { chapterId: chapter.id+"_cisi" });
-  });
+  renderQuizTabWithHistory(content, examKey, chapter, mcqs, chapter.id+"_cisi", chapter.title+" — CISI questions");
 }
 
 /* ---------- Practice Bank: original, never-seen questions written to reinforce genuine understanding ---------- */
 function renderPracticeBankTab(content, examKey, chapter){
   var mcqs = chapter.practiceBank || [];
   if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No practice bank questions for this chapter yet.</div>'; return; }
-  content.innerHTML = '<div class="practice-bank-intro">'+ICON.target+' Original questions, written specifically to test understanding rather than memory — not from the CISI bank or the mocks.</div>';
-  var setupHost = document.createElement("div");
-  content.appendChild(setupHost);
-  renderQuizSetup(setupHost, mcqs.length, function(count){
-    var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: chapter.id+"::practice::"+i, _chId: chapter.id, _chapter: chapter.title }); });
-    var picked = shuffle(tagged).slice(0, count);
-    runQuizUI(content, examKey, chapter.title+" — Practice Bank", picked, function(pct){
-      recordQuizResult(examKey, chapter.id+"_practice", pct);
-    }, { chapterId: chapter.id+"_practice" });
-  });
+  var introHtml = '<div class="practice-bank-intro">'+ICON.target+' Original questions, written specifically to test understanding rather than memory — not from the CISI bank or the mocks.</div>';
+  renderQuizTabWithHistory(content, examKey, chapter, mcqs, chapter.id+"_practice", chapter.title+" — Practice Bank", introHtml);
+}
+
+/* ---------- shared: setup picker + attempt history + review, reused by CISI Quiz and Practice Bank ---------- */
+function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label, introHtml){
+  var attempts = ensureQuizAttempts(examKey, quizId);
+  var historyHtml = "";
+  if(attempts.length){
+    historyHtml = '<div class="mock-history">' +
+      '<div class="mock-history-title">Your attempts</div>' +
+      attempts.map(function(a){
+        return '<button class="mock-attempt-row" data-attempt="'+a.id+'">' +
+          '<span>'+esc(fmtAttemptDate(a.date))+'</span>' +
+          '<span class="'+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
+        '</button>';
+      }).join("") +
+    '</div>';
+  }
+
+  function showSetup(){
+    var setupHost = document.createElement("div");
+    content.innerHTML = (introHtml||"") + historyHtml;
+    content.appendChild(setupHost);
+    Array.prototype.forEach.call(content.querySelectorAll(".mock-attempt-row"), function(el){
+      el.onclick = function(){ showReview(el.getAttribute("data-attempt")); };
+    });
+    renderQuizSetup(setupHost, mcqs.length, function(count){
+      var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: quizId+"::"+i, _chId: chapter.id, _chapter: chapter.title, _qIndex:i }); });
+      var picked = shuffle(tagged).slice(0, count);
+      var runnerHost = document.createElement("div");
+      content.innerHTML = "";
+      content.appendChild(runnerHost);
+      runQuizUI(runnerHost, examKey, label, picked, function(pctScore, byChapter, answeredMap){
+        var answers = [];
+        Object.keys(answeredMap).forEach(function(k){
+          answers.push({ i:+k, chosen:answeredMap[k].chosen, correct:answeredMap[k].correct });
+        });
+        answers.sort(function(a,b){ return a.i-b.i; });
+        var correctN = answers.filter(function(a){ return a.correct; }).length;
+        recordQuizAttempt(examKey, quizId, {
+          id: String(Date.now()),
+          date: new Date().toISOString(),
+          pct: pctScore,
+          correct: correctN,
+          total: picked.length,
+          questions: picked,
+          answers: answers
+        });
+        recordQuizResult(examKey, chapter.id + (quizId.indexOf("_practice")>-1 ? "_practice" : "_cisi"), pctScore);
+      }, { isFullExam:true });
+    });
+  }
+
+  function showReview(attemptId){
+    var attempt = attempts.find(function(a){ return a.id===attemptId; });
+    if(!attempt){ showSetup(); return; }
+    var answersByIndex = {};
+    attempt.answers.forEach(function(a){ answersByIndex[a.i] = a; });
+    var letters = ["A","B","C","D","E","F"];
+    var questionsHtml = attempt.questions.map(function(q,i){
+      var a = answersByIndex[i];
+      var optsHtml = q.options.map(function(o,oi){
+        var cls = "q-opt disabled";
+        if(oi===q.correctIndex) cls += " correct";
+        else if(a && oi===a.chosen) cls += " incorrect";
+        else cls += " dim";
+        return '<button class="'+cls+'" disabled><span class="letter">'+letters[oi]+'</span><span>'+esc(o)+'</span></button>';
+      }).join("");
+      var statusChip = !a ? '<span class="review-chip skipped">Not answered</span>' : a.correct ? '<span class="review-chip good">Correct</span>' : '<span class="review-chip bad">Incorrect</span>';
+      return '<div class="review-card">' +
+        '<div class="review-card-head"><span class="review-qnum">Q'+(i+1)+'</span>'+statusChip+'</div>' +
+        '<div class="q-text">'+esc(q.question)+'</div>' +
+        '<div class="q-opts">'+optsHtml+'</div>' +
+        '<div class="explain-box"><b>'+(a ? (a.correct?"Correct. ":"Not quite. ") : "Skipped. ")+'</b>'+esc(q.explanation||"")+'</div>' +
+      '</div>';
+    }).join("");
+    content.innerHTML =
+      '<button class="btn btn-sm" id="backToSetupBtn" style="margin-bottom:14px;">'+ICON.chevron+' Back</button>' +
+      '<div class="fmt" style="margin-bottom:16px;">'+esc(label)+' — '+esc(fmtAttemptDate(attempt.date))+'<br>'+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%)</div>' +
+      '<div class="review-list">'+questionsHtml+'</div>';
+    document.getElementById("backToSetupBtn").onclick = showSetup;
+  }
+
+  showSetup();
 }
 
 /* ---------- question-count picker (increments of 10, up to the full set) ---------- */
