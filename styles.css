@@ -602,6 +602,27 @@ mark.hl-pink{background:#f7b8dd; color:#111; padding:0 2px; border-radius:2px;}
 
 /* ---------- Regulatory bodies directory ---------- */
 .reg-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;}
+
+/* ---------- Key Timeframes reference page ---------- */
+.tf-group{margin-bottom:26px;}
+.tf-group-title{font-size:13.5px; font-weight:700; color:var(--accent-strong); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border);}
+.tf-row{
+  display:grid; grid-template-columns:150px 1fr 1.6fr auto; align-items:center; gap:14px;
+  padding:10px 14px; border-bottom:1px solid var(--border); font-size:12.5px;
+}
+.tf-row:last-child{border-bottom:none;}
+.tf-delay{font-weight:700; color:var(--text); white-space:nowrap;}
+.tf-flow{color:var(--text-dim); white-space:nowrap;}
+.tf-arrow{color:var(--text-faint);}
+.tf-what{color:var(--text-dim); line-height:1.4;}
+.tf-chip{
+  font-size:10.5px; font-weight:700; color:var(--accent-strong); background:var(--accent-soft);
+  padding:3px 9px; border-radius:999px; white-space:nowrap; justify-self:end;
+}
+@media (max-width:720px){
+  .tf-row{grid-template-columns:1fr; gap:4px; padding:12px 14px;}
+  .tf-chip{justify-self:start; margin-top:4px;}
+}
 .reg-card{
   background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg);
   padding:20px 22px; scroll-margin-top:90px; transition:box-shadow .3s, border-color .3s;

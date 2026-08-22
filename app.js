@@ -202,6 +202,7 @@ initTheme();
 
 /* ---------- icons ---------- */
 var ICON = {
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
   sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>',
@@ -405,6 +406,7 @@ function render(){
   if(second === "_glossaryflashcards"){ renderGlossaryFlashcards(examKey); return; }
   if(second === "_regulators"){ renderRegulators(examKey); return; }
   if(second === "_clientrules"){ renderClientRules(examKey); return; }
+  if(second === "_timeframes"){ renderTimeframes(examKey); return; }
 
   var chId = second;
   var chapter = DATA[examKey].chapters.find(function(c){ return c.id===chId; });
@@ -570,6 +572,7 @@ function renderExamOverview(examKey){
         '<button class="btn" id="glossaryBtn">'+ICON.glossary+' Glossary</button>' +
         '<button class="btn" id="regulatorsBtn">'+ICON.map+' Regulatory bodies</button>' +
         '<button class="btn" id="clientRulesBtn">'+ICON.target+' Who gets what</button>' +
+        '<button class="btn" id="timeframesBtn">'+ICON.clock+' Key timeframes</button>' +
         '<button class="btn" id="exportBtn">'+ICON.pdf+' Export PDF</button>' +
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
         (mockCount>0 ? '<button class="btn btn-teal" id="mocksBtn">'+ICON.quiz+' Mock exams ('+mockCount+')</button>' : '') +
@@ -599,6 +602,8 @@ function renderExamOverview(examKey){
   if(regBtn) regBtn.onclick = function(){ navigate([examKey, "_regulators"]); };
   var crBtn = document.getElementById("clientRulesBtn");
   if(crBtn) crBtn.onclick = function(){ navigate([examKey, "_clientrules"]); };
+  var tfBtn = document.getElementById("timeframesBtn");
+  if(tfBtn) tfBtn.onclick = function(){ navigate([examKey, "_timeframes"]); };
   var mb = document.getElementById("mocksBtn");
   if(mb) mb.onclick = function(){ navigate([examKey, "_mocks"]); };
   var cb = document.getElementById("cisiExamBtn");
@@ -2304,6 +2309,67 @@ function renderGlossaryFlashcards(examKey){
 }
 
 /* ---------- regulatory bodies directory: scope, powers, traps, and how they link to each other ---------- */
+function renderTimeframes(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var groups = exam.timeframes || [];
+  if(groups.length===0){
+    app.innerHTML = '<div class="main-narrow"><div class="chapter-head">' + backRow(exam.title) +
+      '<h1>Key timeframes</h1></div><div class="empty-state">Not available yet for '+esc(exam.title)+'.</div></div>';
+    wireBack(app, [examKey]);
+    return;
+  }
+
+  function rowHtml(r){
+    return '<div class="tf-row" data-search="'+esc((r.delay+" "+r.from+" "+r.to+" "+r.what+" "+r.chapter).toLowerCase())+'">' +
+      '<span class="tf-delay">'+esc(r.delay)+'</span>' +
+      '<span class="tf-flow">'+esc(r.from)+' <span class="tf-arrow">→</span> '+esc(r.to)+'</span>' +
+      '<span class="tf-what">'+esc(r.what)+'</span>' +
+      '<span class="tf-chip">'+esc(r.chapter)+'</span>' +
+    '</div>';
+  }
+
+  var groupsHtml = groups.map(function(g){
+    return '<div class="tf-group">' +
+      '<div class="tf-group-title">'+esc(g.icon||"")+' '+esc(g.title)+'</div>' +
+      g.rows.map(rowHtml).join("") +
+    '</div>';
+  }).join("");
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Key timeframes</div>' +
+    '<h1>Key timeframes</h1><div class="fmt">Every notification/reporting/retention deadline across all 4 chapters, in one place — sorted from immediate to annual, so you never confuse a single-complaint response time with a recurring regulatory return.</div>' +
+    '</div>' +
+    '<div class="gloss-toolbar"><div class="search-box gloss-search">'+ICON.search+'<input type="text" id="tfSearch" placeholder="Search a timeframe, sender, recipient or topic…" autocomplete="off"/></div></div>' +
+    '<div id="tfGroups">' + groupsHtml + '</div>' +
+    '<div class="empty-state" id="tfEmpty" style="display:none;">No timeframe matches your search.</div>' +
+  '</div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+
+  var input = document.getElementById("tfSearch");
+  var rowEls = Array.prototype.slice.call(document.querySelectorAll(".tf-row"));
+  var groupEls = Array.prototype.slice.call(document.querySelectorAll(".tf-group"));
+  var emptyMsg = document.getElementById("tfEmpty");
+  input.oninput = function(){
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    groupEls.forEach(function(g){
+      var groupShown = 0;
+      Array.prototype.forEach.call(g.querySelectorAll(".tf-row"), function(r){
+        var match = !q || r.getAttribute("data-search").indexOf(q)!==-1;
+        r.style.display = match ? "" : "none";
+        if(match){ groupShown++; shown++; }
+      });
+      g.style.display = groupShown>0 ? "" : "none";
+    });
+    emptyMsg.style.display = shown===0 ? "" : "none";
+  };
+}
+
 function renderRegulators(examKey){
   renderSidebar(examKey, null);
   var exam = DATA[examKey];
