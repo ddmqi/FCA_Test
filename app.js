@@ -1158,7 +1158,7 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
       var runnerHost = document.createElement("div");
       content.innerHTML = "";
       content.appendChild(runnerHost);
-      runQuizUI(runnerHost, examKey, label, picked, function(pctScore, byChapter, answeredMap){
+      runQuizUI(runnerHost, examKey, label, picked, function(pctScore, byChapter, answeredMap, shuffledQuestions){
         var answers = [];
         Object.keys(answeredMap).forEach(function(k){
           answers.push({ i:+k, chosen:answeredMap[k].chosen, correct:answeredMap[k].correct });
@@ -1171,7 +1171,7 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
           pct: pctScore,
           correct: correctN,
           total: picked.length,
-          questions: picked,
+          questions: shuffledQuestions,
           answers: answers
         });
         recordQuizResult(examKey, chapter.id + (quizId.indexOf("_practice")>-1 ? "_practice" : "_cisi"), pctScore);
@@ -1875,7 +1875,7 @@ function renderMockExamRunner(examKey, mockId){
   document.getElementById("startMock").onclick = function(){
     var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title, _qIndex:i }); });
     var container = document.getElementById("mockShell");
-    runQuizUI(container, examKey, mock.title, tagged, function(pctScore, byChapter, answeredMap){
+    runQuizUI(container, examKey, mock.title, tagged, function(pctScore, byChapter, answeredMap, shuffledQuestions){
       var answers = [];
       Object.keys(answeredMap).forEach(function(k){
         answers.push({ i:+k, chosen:answeredMap[k].chosen, correct:answeredMap[k].correct });
@@ -1889,7 +1889,8 @@ function renderMockExamRunner(examKey, mockId){
         correct: correctN,
         total: mock.mcqs.length,
         byChapter: byChapter,
-        answers: answers
+        answers: answers,
+        questions: shuffledQuestions
       });
     }, { isFullExam:true, timerSeconds: seconds });
   };
@@ -1912,7 +1913,8 @@ function renderMockAttemptReview(examKey, mockId, attemptId){
   }).join("") + '</div>';
 
   var letters = ["A","B","C","D","E","F"];
-  var questionsHtml = mock.mcqs.map(function(q, i){
+  var reviewQuestions = attempt.questions || mock.mcqs; // fallback for attempts recorded before this fix
+  var questionsHtml = reviewQuestions.map(function(q, i){
     var a = answersByIndex[i];
     var optsHtml = q.options.map(function(o,oi){
       var cls = "q-opt disabled";
@@ -2153,7 +2155,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
           '<button class="btn" id="backBtn">'+ICON.home+' Back</button>' +
         '</div>' +
       '</div>';
-    onFinish(p, byChapter, answeredMap);
+    onFinish(p, byChapter, answeredMap, questions);
     document.getElementById("retryBtn").onclick = function(){
       idx=0; correctCount=0; byChapter={}; wrongOnes=[]; timedOut=false; timeLeft = opts.timerSeconds || null; timerStarted=false; answeredMap={};
       questions = shuffle(questions).map(shuffleOptions); renderQ();
