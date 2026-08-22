@@ -611,6 +611,9 @@ mark.hl-pink{background:#f7b8dd; color:#111; padding:0 2px; border-radius:2px;}
   padding:10px 14px; border-bottom:1px solid var(--border); font-size:12.5px;
 }
 .tf-row:last-child{border-bottom:none;}
+.tf-row-clickable{cursor:pointer; transition:.15s;}
+.tf-row-clickable:hover{background:var(--bg-inset);}
+.tf-chip svg{width:10px; height:10px; margin-left:3px; vertical-align:middle;}
 .tf-delay{font-weight:700; color:var(--text); white-space:nowrap;}
 .tf-flow{color:var(--text-dim); white-space:nowrap;}
 .tf-arrow{color:var(--text-faint);}

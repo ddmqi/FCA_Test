@@ -903,8 +903,8 @@ function wireRelatedLinks(content, examKey, chId){
 }
 
 function renderDetailTab(content, examKey, chapter){
-  var secs = (chapter.sections||[]).map(function(s){
-    return '<div class="section-block"><h3 class="sec-h">'+esc(s.heading)+'</h3><div class="prose">'+s.html+'</div></div>';
+  var secs = (chapter.sections||[]).map(function(s, i){
+    return '<div class="section-block" id="sec-'+esc(chapter.id)+'-'+i+'"><h3 class="sec-h">'+esc(s.heading)+'</h3><div class="prose">'+s.html+'</div></div>';
   }).join("");
   var original = secs || '<div class="empty-state">No detailed notes available.</div>';
   var stored = getHighlightHtml(examKey, chapter.id, "detail");
@@ -915,6 +915,19 @@ function renderDetailTab(content, examKey, chapter){
   wireStudyMode(content, examKey, chapter.id, "detail");
   wireRelatedLinks(content, examKey, chapter.id);
   wireNotesBox(content, examKey, chapter.id);
+
+  if(window.__pendingScrollSection){
+    var targetId = "sec-" + window.__pendingScrollSection;
+    var targetEl = document.getElementById(targetId);
+    window.__pendingScrollSection = null;
+    if(targetEl){
+      setTimeout(function(){
+        targetEl.scrollIntoView({behavior:"smooth", block:"start"});
+        targetEl.classList.add("reg-flash");
+        setTimeout(function(){ targetEl.classList.remove("reg-flash"); }, 1600);
+      }, 60);
+    }
+  }
 }
 
 /* ---------- mind map (auto-built from the chapter's sections/sub-headings so it always reflects the notes) ---------- */
@@ -2338,11 +2351,13 @@ function renderTimeframes(examKey){
   }
 
   function rowHtml(r){
-    return '<div class="tf-row" data-search="'+esc((r.delay+" "+r.from+" "+r.to+" "+r.what+" "+r.chapter).toLowerCase())+'">' +
+    var clickable = r.chId!=null && r.secIdx!=null;
+    return '<div class="tf-row'+(clickable?" tf-row-clickable":"")+'" data-search="'+esc((r.delay+" "+r.from+" "+r.to+" "+r.what+" "+r.chapter).toLowerCase())+'"' +
+      (clickable ? ' data-goto-ch="'+esc(r.chId)+'" data-goto-sec="'+r.secIdx+'"' : '') + '>' +
       '<span class="tf-delay">'+esc(r.delay)+'</span>' +
       '<span class="tf-flow">'+esc(r.from)+' <span class="tf-arrow">→</span> '+esc(r.to)+'</span>' +
       '<span class="tf-what">'+esc(r.what)+'</span>' +
-      '<span class="tf-chip">'+esc(r.chapter)+'</span>' +
+      '<span class="tf-chip">'+esc(r.chapter)+(clickable?' '+ICON.chevron:"")+'</span>' +
     '</div>';
   }
 
@@ -2385,6 +2400,12 @@ function renderTimeframes(examKey){
     });
     emptyMsg.style.display = shown===0 ? "" : "none";
   };
+  Array.prototype.forEach.call(document.querySelectorAll(".tf-row-clickable"), function(el){
+    el.onclick = function(){
+      window.__pendingScrollSection = el.getAttribute("data-goto-ch")+"-"+el.getAttribute("data-goto-sec");
+      navigate([examKey, el.getAttribute("data-goto-ch"), "detail"]);
+    };
+  });
 }
 
 function renderRegulators(examKey){
