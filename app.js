@@ -108,6 +108,12 @@ function recordQuizAttempt(examKey, quizId, attempt){
   saveStore(store);
   return attempt;
 }
+function deleteQuizAttempt(examKey, quizId, attemptId){
+  var ex = ensureExam(examKey);
+  if(!ex.quizAttempts || !ex.quizAttempts[quizId]) return;
+  ex.quizAttempts[quizId] = ex.quizAttempts[quizId].filter(function(a){ return a.id!==attemptId; });
+  saveStore(store);
+}
 function customCards(examKey, chId){
   var ex = ensureExam(examKey);
   if(!ex.customCards) ex.customCards = {};
@@ -1136,26 +1142,37 @@ function renderPracticeBankTab(content, examKey, chapter){
 
 /* ---------- shared: setup picker + attempt history + review, reused by CISI Quiz and Practice Bank ---------- */
 function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label, introHtml){
-  var attempts = ensureQuizAttempts(examKey, quizId);
-  var historyHtml = "";
-  if(attempts.length){
-    historyHtml = '<div class="mock-history">' +
+
+  function historyHtml(){
+    var attempts = ensureQuizAttempts(examKey, quizId);
+    if(!attempts.length) return "";
+    return '<div class="mock-history">' +
       '<div class="mock-history-title">Your attempts</div>' +
       attempts.map(function(a){
-        return '<button class="mock-attempt-row" data-attempt="'+a.id+'">' +
-          '<span>'+esc(fmtAttemptDate(a.date))+'</span>' +
-          '<span class="'+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
-        '</button>';
+        return '<div class="mock-attempt-row-wrap">' +
+          '<button class="mock-attempt-row" data-attempt="'+a.id+'">' +
+            '<span>'+esc(fmtAttemptDate(a.date))+'</span>' +
+            '<span class="'+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
+          '</button>' +
+          '<button class="cc-icon-btn cc-danger attempt-delete-btn" data-del="'+a.id+'" title="Delete this attempt">'+ICON.close+'</button>' +
+        '</div>';
       }).join("") +
     '</div>';
   }
 
   function showSetup(){
     var setupHost = document.createElement("div");
-    content.innerHTML = (introHtml||"") + historyHtml;
+    content.innerHTML = (introHtml||"") + historyHtml();
     content.appendChild(setupHost);
     Array.prototype.forEach.call(content.querySelectorAll(".mock-attempt-row"), function(el){
       el.onclick = function(){ showReview(el.getAttribute("data-attempt")); };
+    });
+    Array.prototype.forEach.call(content.querySelectorAll(".attempt-delete-btn"), function(el){
+      el.onclick = function(e){
+        e.stopPropagation();
+        deleteQuizAttempt(examKey, quizId, el.getAttribute("data-del"));
+        showSetup();
+      };
     });
     renderQuizSetup(setupHost, mcqs.length, function(count){
       var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: quizId+"::"+i, _chId: chapter.id, _chapter: chapter.title, _qIndex:i }); });
@@ -1185,7 +1202,7 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
   }
 
   function showReview(attemptId){
-    var attempt = attempts.find(function(a){ return a.id===attemptId; });
+    var attempt = ensureQuizAttempts(examKey, quizId).find(function(a){ return a.id===attemptId; });
     if(!attempt){ showSetup(); return; }
     var answersByIndex = {};
     attempt.answers.forEach(function(a){ answersByIndex[a.i] = a; });
