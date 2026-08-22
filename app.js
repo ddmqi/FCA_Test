@@ -405,6 +405,14 @@ function render(){
     else { renderMockExamsList(examKey); }
     return;
   }
+  if(second === "_samples"){
+    var sampleId = parts[2];
+    var sAttemptId = parts[3];
+    if(sampleId && sAttemptId){ renderSampleAttemptReview(examKey, sampleId, sAttemptId); }
+    else if(sampleId){ renderSampleRunner(examKey, sampleId); }
+    else { renderSamplesList(examKey); }
+    return;
+  }
   if(second === "_cards"){ renderAllFlashcards(examKey); return; }
   if(second === "_weak"){ renderWeakSpots(examKey); return; }
   if(second === "_export"){ renderExportPage(examKey); return; }
@@ -579,6 +587,7 @@ function renderExamOverview(examKey){
         '<button class="btn" id="regulatorsBtn">'+ICON.map+' Regulatory bodies</button>' +
         '<button class="btn" id="clientRulesBtn">'+ICON.target+' Who gets what</button>' +
         '<button class="btn" id="timeframesBtn">'+ICON.clock+' Key timeframes</button>' +
+        '<button class="btn" id="samplesBtn">'+ICON.quiz+' Sample papers</button>' +
         '<button class="btn" id="exportBtn">'+ICON.pdf+' Export PDF</button>' +
         '<button class="btn btn-teal" id="allCardsBtn">'+ICON.cards+' All flashcards</button>' +
         (mockCount>0 ? '<button class="btn btn-teal" id="mocksBtn">'+ICON.quiz+' Mock exams ('+mockCount+')</button>' : '') +
@@ -610,6 +619,8 @@ function renderExamOverview(examKey){
   if(crBtn) crBtn.onclick = function(){ navigate([examKey, "_clientrules"]); };
   var tfBtn = document.getElementById("timeframesBtn");
   if(tfBtn) tfBtn.onclick = function(){ navigate([examKey, "_timeframes"]); };
+  var spBtn = document.getElementById("samplesBtn");
+  if(spBtn) spBtn.onclick = function(){ navigate([examKey, "_samples"]); };
   var mb = document.getElementById("mocksBtn");
   if(mb) mb.onclick = function(){ navigate([examKey, "_mocks"]); };
   var cb = document.getElementById("cisiExamBtn");
@@ -1814,6 +1825,151 @@ function fmtAttemptDate(iso){
     var d = new Date(iso);
     return d.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) + " · " + d.toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
   }catch(e){ return ""; }
+}
+
+/* ---------- Sample Papers: official CISI past sample papers, reusing the generic quiz-attempt history system ---------- */
+function renderSamplesList(examKey){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var papers = exam.samplePapers || [];
+
+  var cardsHtml = papers.map(function(p){
+    var attempts = ensureQuizAttempts(examKey, p.id);
+    var best = attempts.length ? Math.max.apply(null, attempts.map(function(a){ return a.pct; })) : null;
+    return '<div class="mock-card" data-sample="'+esc(p.id)+'">' +
+      '<div class="mock-card-top"><span class="mock-title">'+esc(p.title)+'</span>' +
+        (best!==null ? '<span class="mock-best">Best: '+best+'%</span>' : '') +
+      '</div>' +
+      '<div class="mock-meta">'+p.mcqs.length+' questions · official CISI sample paper'+(attempts.length>0?' · '+attempts.length+' attempt'+(attempts.length>1?'s':'')+' so far':'')+'</div>' +
+      '<button class="btn btn-primary btn-sm">'+ICON.quiz+' '+(attempts.length>0?"View / retake":"Start")+'</button>' +
+    '</div>';
+  }).join("");
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(exam.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / Sample papers</div>' +
+    '<h1>Sample papers</h1><div class="fmt">Official CISI sample papers (past editions), with the genuine published answers and syllabus references.</div></div>' +
+    '<div class="mock-grid">'+(cardsHtml||'<div class="empty-state">No sample papers available yet.</div>')+'</div>' +
+    '</div>';
+
+  wireBack(app, [examKey]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+  Array.prototype.forEach.call(app.querySelectorAll("[data-sample]"), function(el){
+    el.onclick = function(){ navigate([examKey, "_samples", el.getAttribute("data-sample")]); };
+  });
+}
+
+function renderSampleRunner(examKey, sampleId){
+  renderSidebar(examKey, null);
+  var exam = DATA[examKey];
+  var paper = (exam.samplePapers||[]).find(function(p){ return p.id===sampleId; });
+  if(!paper){ renderSamplesList(examKey); return; }
+
+  var seconds = paper.mcqs.length * EXAM_SECONDS_PER_Q;
+  var minutes = Math.round(seconds/60);
+  var attempts = ensureQuizAttempts(examKey, paper.id);
+
+  var historyHtml = "";
+  if(attempts.length>0){
+    historyHtml = '<div class="mock-history">' +
+      '<div class="mock-history-title">Your past attempts</div>' +
+      attempts.map(function(a){
+        return '<button class="mock-attempt-row" data-attempt="'+esc(a.id)+'">' +
+          '<span class="mock-attempt-date">'+esc(fmtAttemptDate(a.date))+'</span>' +
+          '<span class="mock-attempt-score '+(a.pct>=70?"good":"bad")+'-text">'+a.correct+'/'+a.total+' ('+a.pct+'%)</span>' +
+          '<span class="mock-attempt-arrow">'+ICON.chevron+'</span>' +
+        '</button>';
+      }).join("") +
+    '</div>';
+  }
+
+  app.innerHTML = '<div class="main-narrow" id="sampleShell">' +
+    '<div class="chapter-head">' + backRow("Sample papers") +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="samples">Sample papers</a> / '+esc(paper.title)+'</div>' +
+    '<h1>'+esc(paper.title)+'</h1></div>' +
+    '<div class="quiz-config">' +
+      '<div class="mock-brief">'+paper.mcqs.length+' questions &middot; '+minutes+' minutes &middot; official CISI sample, timed exam conditions</div>' +
+      '<button class="btn btn-primary" id="startSample" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
+    '</div>' +
+    historyHtml +
+  '</div>';
+
+  wireBack(app, [examKey, "_samples"]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+  app.querySelector('[data-nav="samples"]').onclick = function(){ navigate([examKey, "_samples"]); };
+  Array.prototype.forEach.call(app.querySelectorAll(".mock-attempt-row"), function(el){
+    el.onclick = function(){ navigate([examKey, "_samples", paper.id, el.getAttribute("data-attempt")]); };
+  });
+
+  document.getElementById("startSample").onclick = function(){
+    var tagged = paper.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: paper.id+"::"+i, _chId: q.chId || null, _chapter: paper.title, _qIndex:i }); });
+    var container = document.getElementById("sampleShell");
+    runQuizUI(container, examKey, paper.title, tagged, function(pctScore, byChapter, answeredMap, shuffledQuestions){
+      var answers = [];
+      Object.keys(answeredMap).forEach(function(k){
+        answers.push({ i:+k, chosen:answeredMap[k].chosen, correct:answeredMap[k].correct });
+      });
+      answers.sort(function(a,b){ return a.i-b.i; });
+      var correctN = answers.filter(function(a){ return a.correct; }).length;
+      recordQuizAttempt(examKey, paper.id, {
+        id: String(Date.now()),
+        date: new Date().toISOString(),
+        pct: pctScore,
+        correct: correctN,
+        total: paper.mcqs.length,
+        answers: answers,
+        questions: shuffledQuestions
+      });
+    }, { isFullExam:true, timerSeconds: seconds });
+  };
+}
+
+function renderSampleAttemptReview(examKey, sampleId, attemptId){
+  var exam = DATA[examKey];
+  var paper = (exam.samplePapers||[]).find(function(p){ return p.id===sampleId; });
+  if(!paper){ renderSamplesList(examKey); return; }
+  var attempt = ensureQuizAttempts(examKey, sampleId).find(function(a){ return a.id===attemptId; });
+  if(!attempt){ renderSampleRunner(examKey, sampleId); return; }
+
+  renderSidebar(examKey, null);
+  var answersByIndex = {};
+  attempt.answers.forEach(function(a){ answersByIndex[a.i] = a; });
+  var letters = ["A","B","C","D","E","F"];
+  var reviewQuestions = attempt.questions || paper.mcqs;
+  var questionsHtml = reviewQuestions.map(function(q,i){
+    var a = answersByIndex[i];
+    var optsHtml = q.options.map(function(o,oi){
+      var cls = "q-opt disabled";
+      if(oi===q.correctIndex) cls += " correct";
+      else if(a && oi===a.chosen) cls += " incorrect";
+      else cls += " dim";
+      return '<button class="'+cls+'" disabled><span class="letter">'+letters[oi]+'</span><span>'+esc(o)+'</span></button>';
+    }).join("");
+    var statusChip = !a ? '<span class="review-chip skipped">Not answered</span>' : a.correct ? '<span class="review-chip good">Correct</span>' : '<span class="review-chip bad">Incorrect</span>';
+    return '<div class="review-card">' +
+      '<div class="review-card-head"><span class="review-qnum">Q'+(i+1)+'</span>'+statusChip+'</div>' +
+      '<div class="q-text">'+esc(q.question)+'</div>' +
+      '<div class="q-opts">'+optsHtml+'</div>' +
+      '<div class="explain-box"><b>'+(a ? (a.correct?"Correct. ":"Not quite. ") : "Skipped. ")+'</b>'+esc(q.explanation||"")+'</div>' +
+    '</div>';
+  }).join("");
+
+  app.innerHTML = '<div class="main-narrow">' +
+    '<div class="chapter-head">' + backRow(paper.title) +
+    '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="samples">Sample papers</a> / <a data-nav="paper">'+esc(paper.title)+'</a> / Review</div>' +
+    '<h1>'+esc(paper.title)+'</h1>' +
+    '<div class="fmt">'+esc(fmtAttemptDate(attempt.date))+' — '+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%)</div>' +
+    '</div>' +
+    '<div class="review-list">'+questionsHtml+'</div>' +
+  '</div>';
+
+  wireBack(app, [examKey, "_samples", sampleId]);
+  app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
+  app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
+  app.querySelector('[data-nav="samples"]').onclick = function(){ navigate([examKey, "_samples"]); };
+  app.querySelector('[data-nav="paper"]').onclick = function(){ navigate([examKey, "_samples", sampleId]); };
 }
 
 function renderMockExamsList(examKey){
