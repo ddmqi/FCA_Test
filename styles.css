@@ -603,6 +603,18 @@ mark.hl-pink{background:#f7b8dd; color:#111; padding:0 2px; border-radius:2px;}
 /* ---------- Regulatory bodies directory ---------- */
 .reg-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;}
 
+/* ---------- PDF export buttons + print layout for quiz questions ---------- */
+.pdf-export-row{display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 22px;}
+@media print{
+  .print-qblock{break-inside:avoid; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid #ddd;}
+  .print-qnum{font-size:11px; font-weight:700; color:#9a6b1f; text-transform:uppercase; margin-bottom:4px;}
+  .print-qtext{font-size:13px; color:#161616; margin-bottom:8px; font-weight:600;}
+  .print-qopts{display:flex; flex-direction:column; gap:4px;}
+  .print-qopt{font-size:12px; color:#2a2a2a; padding:3px 0;}
+  .print-qopt-correct{color:#1c7c3f; font-weight:700;}
+  .print-explain{margin-top:8px; font-size:11.5px; color:#2a2a2a; background:#f7f7f7; padding:8px 10px; border-radius:6px;}
+}
+
 /* ---------- Key Timeframes reference page ---------- */
 .tf-group{margin-bottom:26px;}
 .tf-group-title{font-size:13.5px; font-weight:700; color:var(--accent-strong); margin-bottom:10px; padding-bottom:6px; border-bottom:1px solid var(--border);}

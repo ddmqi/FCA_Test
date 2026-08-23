@@ -1251,8 +1251,10 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
     content.innerHTML =
       '<button class="btn btn-sm" id="backToSetupBtn" style="margin-bottom:14px;">'+ICON.chevron+' Back</button>' +
       '<div class="fmt" style="margin-bottom:16px;">'+esc(label)+' — '+esc(fmtAttemptDate(attempt.date))+'<br>'+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%)</div>' +
+      pdfButtonsHtml() +
       '<div class="review-list">'+questionsHtml+'</div>';
     document.getElementById("backToSetupBtn").onclick = showSetup;
+    wirePdfButtons(content, label, examKey+" — this attempt", function(){ return attempt.questions; });
   }
 
   showSetup();
@@ -1416,6 +1418,66 @@ function renderGlossary(examKey){
     });
     emptyMsg.style.display = shown===0 ? "" : "none";
   };
+}
+
+/* ---------- Generate a PDF (via browser print) of a set of quiz questions, with or without answers/explanations ---------- */
+function generateQuizPrintDoc(title, subtitle, questions, includeAnswers){
+  var today = new Date();
+  var dateStr = today.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+  var letters = ["A","B","C","D","E","F"];
+
+  var cover =
+    '<div class="print-cover">' +
+      '<div class="print-cover-kicker">CISI Revision Hub</div>' +
+      '<h1>'+esc(title)+'</h1>' +
+      '<div class="print-cover-sub">'+esc(subtitle||"")+'</div>' +
+      '<div class="print-cover-meta">Generated '+dateStr+' &middot; '+questions.length+' questions &middot; '+
+        (includeAnswers ? "With answers &amp; explanations" : "Questions only") +
+      '</div>' +
+    '</div>';
+
+  var body = '<div class="print-chapter">' + questions.map(function(q,i){
+    var optsHtml = q.options.map(function(o,oi){
+      var isCorrect = includeAnswers && oi===q.correctIndex;
+      return '<div class="print-qopt'+(isCorrect?" print-qopt-correct":"")+'">'+letters[oi]+'. '+esc(o)+(isCorrect?' &#10003;':'')+'</div>';
+    }).join("");
+    var explainHtml = includeAnswers ? '<div class="print-explain"><b>Explanation: </b>'+esc(q.explanation||"")+'</div>' : "";
+    return '<div class="print-qblock">' +
+      '<div class="print-qnum">Q'+(i+1)+'</div>' +
+      '<div class="print-qtext">'+esc(q.question)+'</div>' +
+      '<div class="print-qopts">'+optsHtml+'</div>' +
+      explainHtml +
+    '</div>';
+  }).join("") + '</div>';
+
+  var root = document.getElementById("printRoot");
+  if(!root){
+    root = document.createElement("div");
+    root.id = "printRoot";
+    document.body.appendChild(root);
+  }
+  root.innerHTML = '<div class="print-doc">'+cover+body+'</div>';
+
+  document.body.classList.add("print-mode");
+  function cleanup(){
+    document.body.classList.remove("print-mode");
+    window.removeEventListener("afterprint", cleanup);
+  }
+  window.addEventListener("afterprint", cleanup);
+  setTimeout(function(){ window.print(); setTimeout(cleanup, 1500); }, 60);
+}
+
+function pdfButtonsHtml(){
+  return '<div class="pdf-export-row">' +
+    '<button class="btn btn-sm" data-pdf-mode="blank">'+ICON.quiz+' Generate PDF (questions only)</button>' +
+    '<button class="btn btn-sm" data-pdf-mode="answers">'+ICON.quiz+' Generate PDF (with answers)</button>' +
+  '</div>';
+}
+function wirePdfButtons(container, title, subtitle, getQuestions){
+  var blankBtn = container.querySelector('[data-pdf-mode="blank"]');
+  var ansBtn = container.querySelector('[data-pdf-mode="answers"]');
+  if(blankBtn) blankBtn.onclick = function(){ generateQuizPrintDoc(title, subtitle, getQuestions(), false); };
+  if(ansBtn) ansBtn.onclick = function(){ generateQuizPrintDoc(title, subtitle, getQuestions(), true); };
 }
 
 function generatePrintDoc(examKey, chapterIds, mode){
@@ -1892,6 +1954,7 @@ function renderSampleRunner(examKey, sampleId){
       '<div class="mock-brief">'+paper.mcqs.length+' questions &middot; '+minutes+' minutes &middot; official CISI sample, timed exam conditions</div>' +
       '<button class="btn btn-primary" id="startSample" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
     '</div>' +
+    pdfButtonsHtml() +
     historyHtml +
   '</div>';
 
@@ -1899,6 +1962,7 @@ function renderSampleRunner(examKey, sampleId){
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   app.querySelector('[data-nav="samples"]').onclick = function(){ navigate([examKey, "_samples"]); };
+  wirePdfButtons(app, paper.title, exam.title+" — Sample paper", function(){ return paper.mcqs; });
   Array.prototype.forEach.call(app.querySelectorAll(".mock-attempt-row"), function(el){
     el.onclick = function(){ navigate([examKey, "_samples", paper.id, el.getAttribute("data-attempt")]); };
   });
@@ -1962,8 +2026,10 @@ function renderSampleAttemptReview(examKey, sampleId, attemptId){
     '<h1>'+esc(paper.title)+'</h1>' +
     '<div class="fmt">'+esc(fmtAttemptDate(attempt.date))+' — '+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%)</div>' +
     '</div>' +
+    pdfButtonsHtml() +
     '<div class="review-list">'+questionsHtml+'</div>' +
   '</div>';
+  wirePdfButtons(app, paper.title, exam.title+" — Sample paper (this attempt)", function(){ return reviewQuestions; });
 
   wireBack(app, [examKey, "_samples", sampleId]);
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
@@ -2050,6 +2116,7 @@ function renderMockExamRunner(examKey, mockId){
       '<div class="mock-brief">'+mock.mcqs.length+' questions &middot; '+minutes+' minutes &middot; timed, exam conditions</div>' +
       '<button class="btn btn-primary" id="startMock" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
     '</div>' +
+    pdfButtonsHtml() +
     historyHtml +
   '</div>';
 
@@ -2057,6 +2124,7 @@ function renderMockExamRunner(examKey, mockId){
   app.querySelector('[data-nav="home"]').onclick = function(){ navigate([]); };
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   app.querySelector('[data-nav="mocks"]').onclick = function(){ navigate([examKey, "_mocks"]); };
+  wirePdfButtons(app, mock.title, exam.title+" — Mock exam", function(){ return mock.mcqs; });
   Array.prototype.forEach.call(app.querySelectorAll(".mock-attempt-row"), function(el){
     el.onclick = function(){ navigate([examKey, "_mocks", mock.id, el.getAttribute("data-attempt")]); };
   });
@@ -2129,6 +2197,7 @@ function renderMockAttemptReview(examKey, mockId, attemptId){
     '<h1>'+esc(mock.title)+' — '+esc(fmtAttemptDate(attempt.date))+'</h1>' +
     '<div class="fmt">'+attempt.correct+'/'+attempt.total+' correct ('+attempt.pct+'%). Scroll down to review every question.</div>' +
     '</div>' +
+    pdfButtonsHtml() +
     breakdownHtml +
     '<div class="review-list">'+questionsHtml+'</div>' +
   '</div>';
@@ -2138,6 +2207,7 @@ function renderMockAttemptReview(examKey, mockId, attemptId){
   app.querySelector('[data-nav="exam"]').onclick = function(){ navigate([examKey]); };
   app.querySelector('[data-nav="mocks"]').onclick = function(){ navigate([examKey, "_mocks"]); };
   app.querySelector('[data-nav="mock"]').onclick = function(){ navigate([examKey, "_mocks", mockId]); };
+  wirePdfButtons(app, mock.title, exam.title+" — Mock exam (this attempt)", function(){ return reviewQuestions; });
 }
 
 /* ---------- generic quiz runner ---------- */
