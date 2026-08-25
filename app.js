@@ -1186,8 +1186,9 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
 
   function showSetup(){
     var setupHost = document.createElement("div");
-    content.innerHTML = (introHtml||"") + historyHtml();
+    content.innerHTML = (introHtml||"") + '<div class="pdf-export-row"><span class="export-label">Export the full question bank ('+mcqs.length+' questions):</span></div>' + pdfButtonsHtml() + historyHtml();
     content.appendChild(setupHost);
+    wirePdfButtons(content, label, examKey+" — full bank", function(){ return mcqs; });
     Array.prototype.forEach.call(content.querySelectorAll(".mock-attempt-row"), function(el){
       el.onclick = function(){ showReview(el.getAttribute("data-attempt")); };
     });
@@ -1328,7 +1329,10 @@ function renderExportPage(examKey){
         '<button class="btn btn-sm" id="selNone">Select none</button>' +
       '</div>' +
       '<div class="export-list">'+rows+'</div>' +
-      '<button class="btn btn-primary" id="genPdfBtn" style="margin-top:22px;">'+ICON.pdf+' Generate PDF</button>' +
+      '<div class="opt-row" style="margin-top:22px;">' +
+        '<button class="btn btn-primary" id="genPdfBtn">'+ICON.pdf+' Generate PDF</button>' +
+        '<button class="btn btn-primary" id="genWordBtn">'+ICON.pdf+' Generate Word doc</button>' +
+      '</div>' +
     '</div>' +
   '</div>';
 
@@ -1356,6 +1360,41 @@ function renderExportPage(examKey){
     if(ids.length===0){ alert("Pick at least one chapter first."); return; }
     generatePrintDoc(examKey, ids, mode);
   };
+  document.getElementById("genWordBtn").onclick = function(){
+    var ids = Array.prototype.filter.call(document.querySelectorAll(".export-check"), function(cb){ return cb.checked; })
+      .map(function(cb){ return cb.getAttribute("data-ch"); });
+    if(ids.length===0){ alert("Pick at least one chapter first."); return; }
+    generateCourseWordDoc(examKey, ids, mode);
+  };
+}
+
+function generateCourseWordDoc(examKey, chapterIds, mode){
+  var exam = DATA[examKey];
+  var chapters = exam.chapters.filter(function(ch){ return chapterIds.indexOf(ch.id) !== -1; });
+  var today = new Date();
+  var dateStr = today.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+
+  var head = '<h1>'+esc(exam.title)+'</h1>' +
+    '<p style="color:#666;">'+esc(exam.subtitle||"")+' &middot; '+esc(exam.examFormat||"")+'</p>' +
+    '<p style="color:#888; font-size:9pt;">Generated '+dateStr+' &middot; '+chapters.length+' of '+exam.chapterCount+' chapters &middot; '+
+      (mode==="both"?"Summary + detailed notes":mode==="summary"?"Summary only":"Detailed notes only") + '</p><hr/>';
+
+  var body = chapters.map(function(ch){
+    var parts = '<h2>'+ch.number+'. '+esc(ch.title)+'</h2>' +
+      (ch.examWeight ? '<p style="color:#888; font-size:9pt;">'+esc(ch.examWeight)+'</p>' : '');
+    if(mode==="both" || mode==="summary"){
+      parts += '<h3>Summary</h3>'+(ch.summaryHtml||"");
+    }
+    if(mode==="both" || mode==="detail"){
+      parts += '<h3>Detailed notes</h3>';
+      (ch.sections||[]).forEach(function(s){
+        parts += '<h4>'+esc(s.heading)+'</h4>'+s.html;
+      });
+    }
+    return parts;
+  }).join("<br/>");
+
+  downloadWordDoc(head + body, exam.title + " - Revision Notes");
 }
 
 /* ---------- glossary ---------- */
@@ -1420,7 +1459,47 @@ function renderGlossary(examKey){
   };
 }
 
-/* ---------- Generate a PDF (via browser print) of a set of quiz questions, with or without answers/explanations ---------- */
+/* ---------- Generate a Word (.doc) file client-side, no external library needed ---------- */
+function downloadWordDoc(bodyHtml, filename){
+  var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>" +
+    "<head><meta charset='utf-8'><title>Export</title>" +
+    "<style>" +
+    "body{font-family:Calibri,Arial,sans-serif; font-size:11pt; color:#1a1a1a;}" +
+    "h1{font-size:20pt; color:#111;} h2{font-size:16pt; color:#111; margin-top:24pt;} h3{font-size:13pt; color:#7a5216; margin-top:16pt;} h4{font-size:12pt; color:#111;}" +
+    "table{border-collapse:collapse; width:100%; margin:10pt 0;} th,td{border:1px solid #999; padding:5pt 8pt; text-align:left; vertical-align:top; font-size:10pt;} th{background:#f0f0f0;}" +
+    ".q-block{margin-bottom:14pt; padding-bottom:10pt; border-bottom:1px solid #ccc;}" +
+    ".q-num{font-size:9pt; font-weight:bold; color:#9a6b1f; text-transform:uppercase;}" +
+    ".q-opt-correct{color:#1c7c3f; font-weight:bold;}" +
+    ".q-explain{margin-top:6pt; font-size:9.5pt; background:#f7f7f7; padding:6pt 8pt;}" +
+    "</style></head><body>";
+  var footer = "</body></html>";
+  var blob = new Blob(['\ufeff', header, bodyHtml, footer], { type: 'application/msword' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith(".doc") ? filename : filename + ".doc";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+}
+
+function quizQuestionsToHtml(title, subtitle, questions, includeAnswers){
+  var letters = ["A","B","C","D","E","F"];
+  var head = '<h1>'+esc(title)+'</h1>' + (subtitle ? '<p style="color:#666;">'+esc(subtitle)+'</p>' : '') +
+    '<p style="color:#888; font-size:9pt;">'+questions.length+' questions &middot; '+(includeAnswers?"With answers &amp; explanations":"Questions only")+'</p><hr/>';
+  var body = questions.map(function(q,i){
+    var optsHtml = q.options.map(function(o,oi){
+      var isCorrect = includeAnswers && oi===q.correctIndex;
+      return '<div'+(isCorrect?' class="q-opt-correct"':'')+'>'+letters[oi]+'. '+esc(o)+(isCorrect?' &#10003;':'')+'</div>';
+    }).join("");
+    var explainHtml = includeAnswers ? '<div class="q-explain"><b>Explanation: </b>'+esc(q.explanation||"")+'</div>' : "";
+    return '<div class="q-block"><div class="q-num">Q'+(i+1)+'</div>' +
+      '<p><b>'+esc(q.question)+'</b></p>' + optsHtml + explainHtml + '</div>';
+  }).join("");
+  return head + body;
+}
+
 function generateQuizPrintDoc(title, subtitle, questions, includeAnswers){
   var today = new Date();
   var dateStr = today.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
@@ -1469,15 +1548,21 @@ function generateQuizPrintDoc(title, subtitle, questions, includeAnswers){
 
 function pdfButtonsHtml(){
   return '<div class="pdf-export-row">' +
-    '<button class="btn btn-sm" data-pdf-mode="blank">'+ICON.quiz+' Generate PDF (questions only)</button>' +
-    '<button class="btn btn-sm" data-pdf-mode="answers">'+ICON.quiz+' Generate PDF (with answers)</button>' +
+    '<button class="btn btn-sm" data-pdf-mode="blank">'+ICON.quiz+' PDF (questions only)</button>' +
+    '<button class="btn btn-sm" data-pdf-mode="answers">'+ICON.quiz+' PDF (with answers)</button>' +
+    '<button class="btn btn-sm" data-word-mode="blank">'+ICON.pdf+' Word (questions only)</button>' +
+    '<button class="btn btn-sm" data-word-mode="answers">'+ICON.pdf+' Word (with answers)</button>' +
   '</div>';
 }
 function wirePdfButtons(container, title, subtitle, getQuestions){
   var blankBtn = container.querySelector('[data-pdf-mode="blank"]');
   var ansBtn = container.querySelector('[data-pdf-mode="answers"]');
+  var wordBlankBtn = container.querySelector('[data-word-mode="blank"]');
+  var wordAnsBtn = container.querySelector('[data-word-mode="answers"]');
   if(blankBtn) blankBtn.onclick = function(){ generateQuizPrintDoc(title, subtitle, getQuestions(), false); };
   if(ansBtn) ansBtn.onclick = function(){ generateQuizPrintDoc(title, subtitle, getQuestions(), true); };
+  if(wordBlankBtn) wordBlankBtn.onclick = function(){ downloadWordDoc(quizQuestionsToHtml(title, subtitle, getQuestions(), false), title+" (questions only)"); };
+  if(wordAnsBtn) wordAnsBtn.onclick = function(){ downloadWordDoc(quizQuestionsToHtml(title, subtitle, getQuestions(), true), title+" (with answers)"); };
 }
 
 function generatePrintDoc(examKey, chapterIds, mode){
