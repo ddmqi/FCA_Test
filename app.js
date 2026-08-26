@@ -674,6 +674,9 @@ function renderChapter(examKey, chapter, tab){
   if(chapter.practiceBank && chapter.practiceBank.length){
     tabs.push(["practiceBank","Practice Bank ("+chapter.practiceBank.length+")", ICON.target]);
   }
+  if(chapter.numbersQuiz && chapter.numbersQuiz.length){
+    tabs.push(["numbersQuiz","Numbers & Thresholds ("+chapter.numbersQuiz.length+")", ICON.clock]);
+  }
   var tabHtml = tabs.map(function(t){
     return '<button data-tab="'+t[0]+'" class="'+(t[0]===tab?"active":"")+'">'+t[1]+'</button>';
   }).join("");
@@ -702,6 +705,7 @@ function renderChapter(examKey, chapter, tab){
   else if(tab==="quiz") renderQuizTab(content, examKey, chapter);
   else if(tab==="cisiQuiz") renderCisiQuizTab(content, examKey, chapter);
   else if(tab==="practiceBank") renderPracticeBankTab(content, examKey, chapter);
+  else if(tab==="numbersQuiz") renderNumbersQuizTab(content, examKey, chapter);
   else if(tab==="flashcards") renderFlashcardsTab(content, examKey, chapter);
   else renderSummaryTab(content, examKey, chapter);
 }
@@ -1162,6 +1166,14 @@ function renderPracticeBankTab(content, examKey, chapter){
   if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No practice bank questions for this chapter yet.</div>'; return; }
   var introHtml = '<div class="practice-bank-intro">'+ICON.target+' Original questions, written specifically to test understanding rather than memory — not from the CISI bank or the mocks.</div>';
   renderQuizTabWithHistory(content, examKey, chapter, mcqs, chapter.id+"_practice", chapter.title+" — Practice Bank", introHtml);
+}
+
+/* ---------- Numbers & Thresholds: deliberately confusable-number drills (exact figures, lists, thresholds) ---------- */
+function renderNumbersQuizTab(content, examKey, chapter){
+  var mcqs = chapter.numbersQuiz || [];
+  if(mcqs.length===0){ content.innerHTML = '<div class="empty-state">No numbers drill for this chapter yet.</div>'; return; }
+  var introHtml = '<div class="practice-bank-intro">'+ICON.clock+' Exact figures, thresholds and closed lists you need to know cold — wrong answers are deliberately drawn from other real numbers in the syllabus, so you train to stop confusing them.</div>';
+  renderQuizTabWithHistory(content, examKey, chapter, mcqs, chapter.id+"_numbers", chapter.title+" — Numbers & Thresholds", introHtml);
 }
 
 /* ---------- shared: setup picker + attempt history + review, reused by CISI Quiz and Practice Bank ---------- */
