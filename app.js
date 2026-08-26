@@ -381,7 +381,7 @@ window.addEventListener("hashchange", render);
 var app = document.getElementById("app");
 
 function render(){
-  stopActiveTimer(); stopActiveQuizKeys();
+  stopActiveTimer(); stopActiveQuizKeys(); stopActiveFlashcardKeys();
   closeSidebar();
   var parts = parseHash();
   closeSearch();
@@ -2314,6 +2314,9 @@ function stopActiveTimer(){
 function stopActiveQuizKeys(){
   if(window.__cisiQuizKeyHandler){ document.removeEventListener("keydown", window.__cisiQuizKeyHandler); window.__cisiQuizKeyHandler = null; }
 }
+function stopActiveFlashcardKeys(){
+  if(window.__cisiFlashcardKeyHandler){ document.removeEventListener("keydown", window.__cisiFlashcardKeyHandler); window.__cisiFlashcardKeyHandler = null; }
+}
 function fmtClock(sec){
   sec = Math.max(0, Math.round(sec));
   var m = Math.floor(sec/60), s = sec%60;
@@ -2875,6 +2878,7 @@ function renderClientRules(examKey){
 }
 
 function runFlashcardUI(container, examKey, label, cards){
+  stopActiveFlashcardKeys();
   function priorityOf(c){ var lvl = cardLevel(examKey, c._id); return lvl===1?0 : lvl===0?1 : lvl===2?2 : 3; }
   function buildQueue(list){
     var groups = [[],[],[],[]];
@@ -2886,6 +2890,8 @@ function runFlashcardUI(container, examKey, label, cards){
   var repeatCounts = {};
   var sessionSeen = {};
   var sessionRatings = { good:0, medium:0, bad:0 };
+  var history = [];   // cards already drawn this session, in the order shown
+  var histIdx = -1;   // pointer into history for the currently displayed card
 
   function levelLabel(l){ return l===1?"Bad":l===2?"Medium":l===3?"Good":"New"; }
 
@@ -2897,25 +2903,41 @@ function runFlashcardUI(container, examKey, label, cards){
     '</div>';
   }
 
+  function advance(){
+    if(histIdx < history.length-1){ histIdx++; draw(); return; }
+    if(queue.length===0){ histIdx = history.length; draw(); return; } // triggers "deck complete" state
+    var c = queue.shift();
+    history.push(c);
+    histIdx = history.length-1;
+    draw();
+  }
+  function goBack(){
+    if(histIdx>0){ histIdx--; draw(); }
+  }
+
   function draw(){
+    stopActiveFlashcardKeys();
     if(totalCards===0){
       container.innerHTML = '<div class="fc-toolbar"><div></div></div><div class="fc-empty">No flashcards here.</div>';
       return;
     }
-    if(queue.length===0){
+    if(histIdx >= history.length){
       container.innerHTML =
         '<div class="fc-toolbar">'+statsHtml()+
           '<div style="display:flex;gap:8px;"><button class="btn btn-sm" id="restartBtn">'+ICON.refresh+' Study again</button></div>' +
         '</div>' +
         '<div class="fc-stage"><div class="fc-done">'+ICON.check+'<h2 style="margin:14px 0 6px;">Deck complete</h2><div style="color:var(--text-faint);font-size:13.5px;max-width:380px;text-align:center;">You\'ve been through all '+totalCards+' cards. Anything rated Bad or Medium will come up first next time you open this deck.</div></div></div>';
       document.getElementById("restartBtn").onclick = function(){
-        queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0}; draw();
+        queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0}; history=[]; histIdx=-1; advance();
       };
       return;
     }
-    var c = queue[0];
+    var c = history[histIdx];
     sessionSeen[c._id] = true;
     var curLevel = cardLevel(examKey, c._id);
+    var atStart = histIdx===0;
+    var isLastKnown = histIdx===history.length-1;
+    var canGoForward = !isLastKnown || queue.length>0;
     container.innerHTML =
       '<div class="fc-toolbar">' + statsHtml() +
         '<div style="display:flex;gap:8px;">' +
@@ -2924,11 +2946,15 @@ function runFlashcardUI(container, examKey, label, cards){
         '</div>' +
       '</div>' +
       '<div class="fc-stage">' +
-        '<div class="fc-count">'+queue.length+' card'+(queue.length>1?"s":"")+' left in this session'+(c._chapter?' &middot; '+esc(c._chapter):'')+(curLevel?' &middot; last rated: '+levelLabel(curLevel):'')+'</div>' +
-        '<div class="flashcard" id="fcCard"><div class="flashcard-inner">' +
-          '<div class="fc-face fc-front"><span class="fc-kicker">Term / prompt</span><div class="fc-txt">'+esc(c.front)+'</div><span class="fc-hint">Click to flip</span></div>' +
-          '<div class="fc-face fc-back"><span class="fc-kicker">Answer</span><div class="fc-txt">'+esc(c.back)+'</div></div>' +
-        '</div></div>' +
+        '<div class="fc-count">Card '+(histIdx+1)+' of '+(history.length + queue.length)+' this session'+(c._chapter?' &middot; '+esc(c._chapter):'')+(curLevel?' &middot; last rated: '+levelLabel(curLevel):'')+'</div>' +
+        '<div class="fc-nav-row">' +
+          '<button class="fc-nav-arrow" id="fcPrevBtn" '+(atStart?"disabled":"")+' aria-label="Previous card" title="Previous (\u2190)">'+ICON.chevron+'</button>' +
+          '<div class="flashcard" id="fcCard"><div class="flashcard-inner">' +
+            '<div class="fc-face fc-front"><span class="fc-kicker">Term / prompt</span><div class="fc-txt">'+esc(c.front)+'</div><span class="fc-hint">Click or press Space to flip</span></div>' +
+            '<div class="fc-face fc-back"><span class="fc-kicker">Answer</span><div class="fc-txt">'+esc(c.back)+'</div></div>' +
+          '</div></div>' +
+          '<button class="fc-nav-arrow fc-nav-next" id="fcNextBtn" '+(canGoForward?"":"disabled")+' aria-label="Next card" title="Next (\u2192)">'+ICON.chevron+'</button>' +
+        '</div>' +
         '<div class="fc-controls fc-controls-3">' +
           '<button class="btn fc-bad" id="badBtn">'+ICON.close+' Bad</button>' +
           '<button class="btn fc-medium" id="mediumBtn">Medium</button>' +
@@ -2937,32 +2963,47 @@ function runFlashcardUI(container, examKey, label, cards){
       '</div>';
 
     var cardEl = document.getElementById("fcCard");
-    cardEl.onclick = function(){ cardEl.classList.toggle("flipped"); };
+    function flip(){ cardEl.classList.toggle("flipped"); }
+    cardEl.onclick = flip;
 
     function rate(level, sessionKey){
       setCardLevel(examKey, c._id, level);
       sessionRatings[sessionKey]++;
-      queue.shift();
       var reps = repeatCounts[c._id] || 0;
       if(level<3 && reps<2){
         repeatCounts[c._id] = reps+1;
         var gap = level===1 ? 3 : 7;
         queue.splice(Math.min(queue.length, gap), 0, c);
       }
-      draw();
+      advance();
     }
     document.getElementById("badBtn").onclick = function(e){ e.stopPropagation(); rate(1, "bad"); };
     document.getElementById("mediumBtn").onclick = function(e){ e.stopPropagation(); rate(2, "medium"); };
     document.getElementById("goodBtn").onclick = function(e){ e.stopPropagation(); rate(3, "good"); };
-    document.getElementById("shuffleBtn").onclick = function(){ var rest = queue.slice(1); queue = [queue[0]].concat(shuffle(rest)); draw(); };
+    document.getElementById("shuffleBtn").onclick = function(){
+      var restQueue = queue.slice();
+      queue = shuffle(restQueue);
+    };
     document.getElementById("resetBtn").onclick = function(){
       cards.forEach(function(c2){ var ex=ensureExam(examKey); delete ex.cards[c2._id]; });
       saveStore(store);
-      queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0};
-      draw();
+      queue = buildQueue(cards); repeatCounts={}; sessionSeen={}; sessionRatings={good:0,medium:0,bad:0}; history=[]; histIdx=-1;
+      advance();
     };
+    var prevBtn = document.getElementById("fcPrevBtn");
+    var nextBtn = document.getElementById("fcNextBtn");
+    if(prevBtn) prevBtn.onclick = function(e){ e.stopPropagation(); goBack(); };
+    if(nextBtn) nextBtn.onclick = function(e){ e.stopPropagation(); advance(); };
+
+    window.__cisiFlashcardKeyHandler = function(e){
+      if(e.target && (e.target.tagName==="INPUT" || e.target.tagName==="TEXTAREA")) return;
+      if(e.code==="Space" || e.key===" "){ e.preventDefault(); flip(); }
+      else if(e.key==="ArrowRight"){ e.preventDefault(); advance(); }
+      else if(e.key==="ArrowLeft"){ e.preventDefault(); goBack(); }
+    };
+    document.addEventListener("keydown", window.__cisiFlashcardKeyHandler);
   }
-  draw();
+  advance();
 }
 
 /* ---------- boot ---------- */
