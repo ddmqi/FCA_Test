@@ -114,6 +114,42 @@ function deleteQuizAttempt(examKey, quizId, attemptId){
   ex.quizAttempts[quizId] = ex.quizAttempts[quizId].filter(function(a){ return a.id!==attemptId; });
   saveStore(store);
 }
+/* ---------- in-progress (unfinished) quiz state — lets a paused quiz be resumed later or explicitly discarded ---------- */
+function getInProgress(examKey, quizId){
+  var ex = ensureExam(examKey);
+  if(!ex.inProgress) return null;
+  return ex.inProgress[quizId] || null;
+}
+function saveInProgress(examKey, quizId, state){
+  var ex = ensureExam(examKey);
+  if(!ex.inProgress) ex.inProgress = {};
+  state.savedAt = new Date().toISOString();
+  ex.inProgress[quizId] = state;
+  saveStore(store);
+}
+function clearInProgress(examKey, quizId){
+  var ex = ensureExam(examKey);
+  if(!ex.inProgress || !ex.inProgress[quizId]) return;
+  delete ex.inProgress[quizId];
+  saveStore(store);
+}
+function inProgressBannerHtml(state){
+  if(!state) return "";
+  var answeredCount = Object.keys(state.answeredMap||{}).length;
+  return '<div class="resume-banner">' +
+    '<div class="resume-banner-text">'+ICON.clock+' Unfinished attempt — question '+((state.idx||0)+1)+' of '+state.total+' ('+answeredCount+' answered)'+(typeof state.timeLeft==="number" ? ', '+fmtClock(state.timeLeft)+' left' : '')+'.</div>' +
+    '<div class="resume-banner-actions">' +
+      '<button class="btn btn-primary btn-sm" id="resumeBtn">'+ICON.chevron+' Resume</button>' +
+      '<button class="btn btn-sm" id="discardBtn">'+ICON.close+' Discard</button>' +
+    '</div>' +
+  '</div>';
+}
+function wireInProgressBanner(container, examKey, quizId, onResume, onDiscard){
+  var resumeBtn = container.querySelector("#resumeBtn");
+  var discardBtn = container.querySelector("#discardBtn");
+  if(resumeBtn) resumeBtn.onclick = onResume;
+  if(discardBtn) discardBtn.onclick = function(){ clearInProgress(examKey, quizId); onDiscard(); };
+}
 function customCards(examKey, chId){
   var ex = ensureExam(examKey);
   if(!ex.customCards) ex.customCards = {};
@@ -1197,8 +1233,9 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
   }
 
   function showSetup(){
+    var inProgress = getInProgress(examKey, quizId);
     var setupHost = document.createElement("div");
-    content.innerHTML = (introHtml||"") + '<div class="pdf-export-row"><span class="export-label">Export the full question bank ('+mcqs.length+' questions):</span></div>' + pdfButtonsHtml() + historyHtml();
+    content.innerHTML = (introHtml||"") + inProgressBannerHtml(inProgress) + '<div class="pdf-export-row"><span class="export-label">Export the full question bank ('+mcqs.length+' questions):</span></div>' + pdfButtonsHtml() + historyHtml();
     content.appendChild(setupHost);
     wirePdfButtons(content, label, examKey+" — full bank", function(){ return mcqs; });
     Array.prototype.forEach.call(content.querySelectorAll(".mock-attempt-row"), function(el){
@@ -1211,9 +1248,8 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
         showSetup();
       };
     });
-    renderQuizSetup(setupHost, mcqs.length, function(count){
-      var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: quizId+"::"+i, _chId: chapter.id, _chapter: chapter.title, _qIndex:i }); });
-      var picked = shuffle(tagged).slice(0, count);
+
+    function startAttempt(picked, resume){
       var runnerHost = document.createElement("div");
       content.innerHTML = "";
       content.appendChild(runnerHost);
@@ -1234,7 +1270,17 @@ function renderQuizTabWithHistory(content, examKey, chapter, mcqs, quizId, label
           answers: answers
         });
         recordQuizResult(examKey, chapter.id + (quizId.indexOf("_practice")>-1 ? "_practice" : "_cisi"), pctScore);
-      }, { isFullExam:true });
+      }, { isFullExam:true, quizId: quizId, resumeState: resume, alreadyShuffled: !!resume });
+    }
+
+    if(inProgress){
+      wireInProgressBanner(content, examKey, quizId, function(){ startAttempt(inProgress.questions, inProgress); }, showSetup);
+    }
+
+    renderQuizSetup(setupHost, mcqs.length, function(count){
+      var tagged = mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: quizId+"::"+i, _chId: chapter.id, _chapter: chapter.title, _qIndex:i }); });
+      var picked = shuffle(tagged).slice(0, count);
+      startAttempt(picked, null);
     });
   }
 
@@ -2043,10 +2089,13 @@ function renderSampleRunner(examKey, sampleId){
     '</div>';
   }
 
+  var inProgress = getInProgress(examKey, paper.id);
+
   app.innerHTML = '<div class="main-narrow" id="sampleShell">' +
     '<div class="chapter-head">' + backRow("Sample papers") +
     '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="samples">Sample papers</a> / '+esc(paper.title)+'</div>' +
     '<h1>'+esc(paper.title)+'</h1></div>' +
+    inProgressBannerHtml(inProgress) +
     '<div class="quiz-config">' +
       '<div class="mock-brief">'+paper.mcqs.length+' questions &middot; '+minutes+' minutes &middot; official CISI sample, timed exam conditions</div>' +
       '<button class="btn btn-primary" id="startSample" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
@@ -2064,8 +2113,12 @@ function renderSampleRunner(examKey, sampleId){
     el.onclick = function(){ navigate([examKey, "_samples", paper.id, el.getAttribute("data-attempt")]); };
   });
 
-  document.getElementById("startSample").onclick = function(){
-    var tagged = paper.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: paper.id+"::"+i, _chId: q.chId || null, _chapter: paper.title, _qIndex:i }); });
+  if(inProgress){
+    wireInProgressBanner(app, examKey, paper.id, function(){ startAttempt(inProgress); }, function(){ renderSampleRunner(examKey, sampleId); });
+  }
+
+  function startAttempt(resume){
+    var tagged = resume ? resume.questions : paper.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: paper.id+"::"+i, _chId: q.chId || null, _chapter: paper.title, _qIndex:i }); });
     var container = document.getElementById("sampleShell");
     runQuizUI(container, examKey, paper.title, tagged, function(pctScore, byChapter, answeredMap, shuffledQuestions){
       var answers = [];
@@ -2083,8 +2136,9 @@ function renderSampleRunner(examKey, sampleId){
         answers: answers,
         questions: shuffledQuestions
       });
-    }, { isFullExam:true, timerSeconds: seconds });
-  };
+    }, { isFullExam:true, timerSeconds: resume ? resume.timeLeft : seconds, quizId: paper.id, resumeState: resume, alreadyShuffled: !!resume });
+  }
+  document.getElementById("startSample").onclick = function(){ startAttempt(null); };
 }
 
 function renderSampleAttemptReview(examKey, sampleId, attemptId){
@@ -2205,10 +2259,13 @@ function renderMockExamRunner(examKey, mockId){
       '</div>';
   }
 
+  var inProgress = getInProgress(examKey, mock.id);
+
   app.innerHTML = '<div class="main-narrow" id="mockShell">' +
     '<div class="chapter-head">' + backRow("Mock exams") +
     '<div class="crumb"><a data-nav="home">Home</a> / <a data-nav="exam">'+esc(exam.title)+'</a> / <a data-nav="mocks">Mock exams</a> / '+esc(mock.title)+'</div>' +
     '<h1>'+esc(mock.title)+'</h1></div>' +
+    inProgressBannerHtml(inProgress) +
     '<div class="quiz-config">' +
       '<div class="mock-brief">'+mock.mcqs.length+' questions &middot; '+minutes+' minutes &middot; timed, exam conditions</div>' +
       '<button class="btn btn-primary" id="startMock" style="align-self:flex-start;">'+ICON.quiz+' Start a new attempt</button>' +
@@ -2228,8 +2285,12 @@ function renderMockExamRunner(examKey, mockId){
   var mixedLink = app.querySelector('[data-nav="mixed"]');
   if(mixedLink) mixedLink.onclick = function(){ navigate([examKey, "_mixed"]); };
 
-  document.getElementById("startMock").onclick = function(){
-    var tagged = mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title, _qIndex:i }); });
+  if(inProgress){
+    wireInProgressBanner(app, examKey, mock.id, function(){ startAttempt(inProgress); }, function(){ renderMockExamRunner(examKey, mockId); });
+  }
+
+  function startAttempt(resume){
+    var tagged = resume ? resume.questions : mock.mcqs.map(function(q,i){ return Object.assign({}, q, { _qid: mock.id+"::"+i, _chId: q.chId || null, _chapter: mock.title, _qIndex:i }); });
     var container = document.getElementById("mockShell");
     runQuizUI(container, examKey, mock.title, tagged, function(pctScore, byChapter, answeredMap, shuffledQuestions){
       var answers = [];
@@ -2248,8 +2309,9 @@ function renderMockExamRunner(examKey, mockId){
         answers: answers,
         questions: shuffledQuestions
       });
-    }, { isFullExam:true, timerSeconds: seconds });
-  };
+    }, { isFullExam:true, timerSeconds: resume ? resume.timeLeft : seconds, quizId: mock.id, resumeState: resume, alreadyShuffled: !!resume });
+  }
+  document.getElementById("startMock").onclick = function(){ startAttempt(null); };
 }
 
 function renderMockAttemptReview(examKey, mockId, attemptId){
@@ -2330,7 +2392,9 @@ function chapterTitle(examKey, chId){
 
 function runQuizUI(container, examKey, label, questions, onFinish, opts){
   opts = opts || {};
-  questions = questions.map(shuffleOptions);
+  var quizId = opts.quizId || null;
+  var resumeState = opts.resumeState || null;
+  if(!opts.alreadyShuffled){ questions = questions.map(shuffleOptions); }
   stopActiveTimer(); stopActiveQuizKeys();
   var idx = 0, correctCount = 0;
   var byChapter = {}; // chId -> {correct,total}
@@ -2341,6 +2405,27 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
   var letters = ["A","B","C","D","E","F"];
   var answeredMap = {}; // idx -> {chosen, correct}
   var showNav = !!opts.isFullExam;
+
+  if(resumeState){
+    idx = resumeState.idx || 0;
+    answeredMap = resumeState.answeredMap || {};
+    if(typeof resumeState.timeLeft === "number") timeLeft = resumeState.timeLeft;
+    Object.keys(answeredMap).forEach(function(k){
+      var a = answeredMap[k], q = questions[+k];
+      if(!q) return;
+      if(a.correct) correctCount++; else wrongOnes.push(q);
+      if(opts.isFullExam && q._chId){
+        if(!byChapter[q._chId]) byChapter[q._chId] = {correct:0,total:0};
+        byChapter[q._chId].total++;
+        if(a.correct) byChapter[q._chId].correct++;
+      }
+    });
+  }
+
+  function persistProgress(){
+    if(!quizId) return;
+    saveInProgress(examKey, quizId, { questions: questions, answeredMap: answeredMap, idx: idx, timeLeft: timeLeft, total: questions.length, label: label });
+  }
 
   function timerHtml(){
     if(timeLeft===null) return "";
@@ -2437,6 +2522,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
         byChapter[chId].total++;
         if(isCorrect) byChapter[chId].correct++;
       }
+      persistProgress();
       renderQ();
     }
 
@@ -2446,15 +2532,15 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
       });
     }
     var prevBtn = document.getElementById("prevBtn");
-    if(prevBtn) prevBtn.onclick = function(){ if(idx>0) gotoQuestion(idx-1); };
+    if(prevBtn) prevBtn.onclick = function(){ if(idx>0){ idx--; persistProgress(); renderQ(); } };
     document.getElementById("nextBtn").onclick = function(){
       idx++;
       if(idx >= questions.length){ stopActiveTimer(); renderResult(); }
-      else renderQ();
+      else { persistProgress(); renderQ(); }
     };
     if(showNav){
       Array.prototype.forEach.call(container.querySelectorAll(".qnav-btn"), function(btn){
-        btn.onclick = function(){ gotoQuestion(+btn.getAttribute("data-i")); };
+        btn.onclick = function(){ idx = +btn.getAttribute("data-i"); persistProgress(); renderQ(); };
       });
       var finishBtn = document.getElementById("finishNowBtn");
       if(finishBtn) finishBtn.onclick = function(){ stopActiveTimer(); renderResult(); };
@@ -2478,6 +2564,7 @@ function runQuizUI(container, examKey, label, questions, onFinish, opts){
 
   function renderResult(){
     stopActiveTimer(); stopActiveQuizKeys();
+    if(quizId) clearInProgress(examKey, quizId);
     var answeredCount = correctCount + wrongOnes.length;
     var p = pct(correctCount, questions.length);
     var breakdownHtml = "", improveHtml = "";
